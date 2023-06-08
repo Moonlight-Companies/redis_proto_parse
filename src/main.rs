@@ -38,6 +38,7 @@ impl RedisProtocol {
         
         if result.is_some() {
             let pos = cursor.position() as usize;
+
             self.remaining_data.drain(..pos);
         }
 
@@ -77,7 +78,7 @@ impl RedisProtocol {
             if crlf[0] == REDIS_PROTO_CR && crlf[1] == REDIS_PROTO_LF {
                 return Some(true)
             } else {
-                panic!("no crlf {:?}", crlf);
+                panic!("protocol error - no crlf {:?}", crlf);
             }
         }
 
@@ -92,13 +93,11 @@ impl RedisProtocol {
             REDIS_PROTO_STRING => {
                 //println!("RedisProtocol::redis_read::REDIS_PROTO_STRING");
                 let string = RedisProtocol::read_redis_string(cursor)?;
-                RedisProtocol::remove_crlf(cursor)?;
                 return Some(RedisValue::RedisString(string));
             },
             REDIS_PROTO_INT => {
                 //println!("RedisProtocol::redis_read::REDIS_PROTO_INT");
                 let integer = RedisProtocol::read_redis_int(cursor)?;
-                RedisProtocol::remove_crlf(cursor)?;
                 return Some(RedisValue::RedisInt(integer));
             },
             REDIS_PROTO_LIST => {
@@ -107,14 +106,12 @@ impl RedisProtocol {
             },
             REDIS_PROTO_OK => {
                 //println!("RedisProtocol::redis_read::REDIS_PROTO_OK");
-                let string = RedisProtocol::read_redis_crlf(cursor)?;
-                RedisProtocol::remove_crlf(cursor)?;
+                let string = RedisProtocol::read_redis_generic_crlf_string(cursor)?;
                 return Some(RedisValue::RedisOk(string));
             }
             REDIS_PROTO_ERROR => {
                 //println!("RedisProtocol::redis_read::REDIS_PROTO_ERROR");
-                let string = RedisProtocol::read_redis_crlf(cursor)?;
-                RedisProtocol::remove_crlf(cursor)?;
+                let string = RedisProtocol::read_redis_generic_crlf_string(cursor)?;
                 return Some(RedisValue::RedisError(string));
             }
             _ => {
@@ -154,6 +151,8 @@ impl RedisProtocol {
 
         let mut buf = vec![0; string_length as usize];
         cursor.read_exact(&mut buf).ok()?;
+
+        RedisProtocol::remove_crlf(cursor)?;
     
         let string = str::from_utf8(&buf).ok()?.trim().to_string();
 
@@ -168,38 +167,49 @@ impl RedisProtocol {
         loop {
             if let Ok(()) = cursor.read_exact(&mut byte) {
                 if byte[0] == REDIS_PROTO_CR {
-                    cursor.seek(SeekFrom::Current(-1));
-                    break
+                    if let Ok(()) = cursor.read_exact(&mut byte) {
+                        if byte[0] == REDIS_PROTO_LF {
+                            break
+                        } else {
+                            return None
+                        }
+                    }
                 } else {
                     buf.extend(&byte);
                 }
             } else {
-                break;
+                return None
             }
         }
 
         let value: i32 = str::from_utf8(&buf).ok()?.trim().parse().ok()?;
-        println!("REDIS_PROTO_INT: {}", value);
+        //println!("REDIS_PROTO_INT: {}", value);
         Some(value)
     }
 
-    fn read_redis_crlf(cursor: &mut Cursor<&[u8]>) -> Option<String> {
+    fn read_redis_generic_crlf_string(cursor: &mut Cursor<&[u8]>) -> Option<String> {
         let mut buf: Vec<u8> = Vec::new();
         let mut byte = [0; 1];
         loop {
             if let Ok(()) = cursor.read_exact(&mut byte) {
+                //println!("RedisProtocol::read_redis_generic_crlf_string: {:?}", byte);
                 if byte[0] == REDIS_PROTO_CR {
-                    cursor.seek(SeekFrom::Current(-1));
-                    break
+                    if let Ok(()) = cursor.read_exact(&mut byte) {
+                        if byte[0] == REDIS_PROTO_LF {
+                            break;
+                        } else {
+                            return None
+                        }
+                    }
                 } else {
                     buf.extend(&byte);
                 }
             } else {
-                break;
+                return None;
             }
         }
 
-        //println!("read_redis_crlf BUF:{:?}", buf);
+        println!("read_redis_crlf BUF:{:?}", buf);
 
         Some(str::from_utf8(&buf).ok()?.trim().to_string())
     }
@@ -247,26 +257,27 @@ fn main() {
     // $27    <--- length of string below
     // groupbroadcast::control::46        <---- channel name
 
-    protocol.more_data(data.to_vec());
+    //protocol.more_data(data.to_vec());
 
-    // test the whole stream at once
-    loop {
-        if let Some(cmd)=protocol.consume() {
-            cmd.debugprint();
-        } else {
-            break;
-        }
-    }
-
-    // // test one byte at a time
-    // for byte in data.iter() {
-    //     //println!("append more data {}", protocol.more_data(vec![*byte]));
-    //     loop {
-    //         if let Some(cmd)=protocol.consume() {
-    //             cmd.debugprint();
-    //         } else {
-    //             break;
-    //         }
+    // // test the whole stream at once
+    // loop {
+    //     if let Some(cmd)=protocol.consume() {
+    //         cmd.debugprint();
+    //     } else {
+    //         break;
     //     }
     // }
+
+    // test one byte at a time
+    for byte in data.iter() {
+        protocol.more_data(vec![*byte]);
+        //println!("append more data {}", protocol.more_data(vec![*byte]).expect("err".into()));
+        loop {
+            if let Some(cmd)=protocol.consume() {
+                cmd.debugprint();
+            } else {
+                break;
+            }
+        }
+    }
 }
