@@ -1,5 +1,7 @@
 use std::io::{self, Read};
 
+pub use redis_protocol::{RedisCodec, RedisValue};
+
 mod redis_protocol {
     use super::*;
     use std::io::{Error, ErrorKind::*};
@@ -40,6 +42,7 @@ mod redis_protocol {
                     src.advance(src.len() - reader.len());
                     Ok(Some(val))
                 }
+                // if we get an unexpected EOF, we need to wait for more data
                 Err(e) if e.kind() == UnexpectedEof => Ok(None),
                 Err(e) => Err(e),
             }
@@ -49,11 +52,11 @@ mod redis_protocol {
     fn read_length(src: &mut &[u8]) -> io::Result<i32> {
         for i in 0.. {
             let Some([l, r]) = src.get(i..i+2) else {
-                 return Err(Error::new(UnexpectedEof, ""))
-             };
+                return Err(Error::new(UnexpectedEof, ""))
+            };
 
-            if [*l, *r] != *PROTO_CRLF {
-                let value = std::str::from_utf8(&src[..i])
+            if [*l, *r] == *PROTO_CRLF {
+                let value = std::str::from_utf8(&src[..=i])
                     .or(Err(Error::new(
                         InvalidData,
                         "len read failed (not a string)",
@@ -136,17 +139,17 @@ mod redis_protocol {
     fn read_redis_generic_crlf_string(src: &mut &[u8]) -> io::Result<String> {
         for i in 0.. {
             let Some([l, r]) = src.get(i..i+2) else {
-                 return Err(Error::new(UnexpectedEof, ""))
-             };
+                return Err(Error::new(UnexpectedEof, ""))
+            };
 
-            if [*l, *r] != *PROTO_CRLF {
-                let value = std::str::from_utf8(&src[..i])
+            if [*l, *r] == *PROTO_CRLF {
+                let value = std::str::from_utf8(&src[..=i])
                     .or(Err(Error::new(
                         InvalidData,
                         "string read failed (not a string)",
                     )))?
                     .trim();
-                let _ = take_vec(src, i + 2);
+                take_vec(src, i + 2)?;
 
                 return Ok(value.into());
             }
