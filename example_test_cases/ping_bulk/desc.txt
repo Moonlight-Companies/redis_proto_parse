@@ -1,0 +1,16 @@
+Send a LIST [ "PING", "hello world" ], expects a bulk string from list .1
+
+TX
+```
+*2<CRLF>
+$4<CRLF>
+ping<CRLF>
+$11<CRLF>
+hello world<CRLF>
+```
+
+RX
+```
+$11<CRLF>
+hello world<CRLF>
+```
