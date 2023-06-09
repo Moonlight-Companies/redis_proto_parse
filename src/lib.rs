@@ -1,6 +1,6 @@
 use std::io::{self, Read};
 
-pub use redis_protocol::{RedisCodec, RedisValue, PubSubMessage};
+pub use redis_protocol::{RedisCodec, RedisValue, PubSubEvent, PubSubMessage};
 
 mod redis_protocol {
     use super::*;
@@ -19,25 +19,13 @@ mod redis_protocol {
     #[derive(Debug)]
     pub enum RedisValue {
         String(Vec<u8>),
-        Int(i32),
+        Int(i64),
         List(Vec<RedisValue>),
         Ok(String),
         Error(String),
     }
 
     impl RedisValue {
-        fn as_message_kind(&self) -> String {
-            match self {
-                RedisValue::List(v) => {
-                    if let Some(vv)=v.get(0) {
-                        return vv.as_str();
-                    }
-
-                    "unknown".into()
-                },
-                _ => "unknown".into(),
-            }
-        }
         fn as_str(&self) -> String {
             match self {
                 RedisValue::String(data) => {
@@ -52,7 +40,12 @@ mod redis_protocol {
                 RedisValue::Error(data) => {
                     format!("{}", data)
                 },
-                _ => "".into()
+                RedisValue::List(v) => {
+                    if let Some(vv)=v.get(0) {
+                        return vv.as_str();
+                    }
+                    "".into()
+                },
             }
         }
 
@@ -72,7 +65,23 @@ mod redis_protocol {
         pub data: Vec<u8>
     }
 
-    impl TryFrom<RedisValue> for PubSubMessage {
+    pub struct PubSubOther {
+        pub message_name: String,
+        pub parts: Vec<RedisValue>
+    }
+
+    pub enum PubSubEvent {
+        Message(PubSubMessage),
+        //PMessage(PubSubMessage),
+        Pong(()),
+        List((String, Vec<RedisValue>)),
+        String(String),
+        Int(i64),
+        Ok(String),
+        Error(String)
+    }
+
+    impl TryFrom<RedisValue> for PubSubEvent {
         type Error = io::Error;
         fn try_from(value: RedisValue) -> Result<Self, io::Error> {
             match value {
@@ -82,46 +91,57 @@ mod redis_protocol {
                         match message_kind.as_str().as_str() {
                             "message" => {
                                 if let (Some(rv_channel), Some(rv_data)) = (v.next(), v.next()) {
-                                    return Ok(PubSubMessage {
+                                    return Ok(PubSubEvent::Message(PubSubMessage {
                                         channel_name: rv_channel.as_str(),
                                         channel_pattern: None,
                                         data: rv_data.take_buffer(),
-                                    });
+                                    }));
                                 };
-    
+
                                 return Err(Error::new(InvalidData, "protocol error - 'message' missing some parameters (expects channel, data)"))
                             },
                             "pmessage" => {
                                 if let (Some(rv_pattern), Some(rv_channel), Some(rv_data)) = (v.next(), v.next(), v.next()) {
-                                    return Ok(PubSubMessage {
+                                    return Ok(PubSubEvent::Message(PubSubMessage {
                                         channel_name: rv_channel.as_str(),
                                         channel_pattern: Some(rv_pattern.as_str()),
                                         data: rv_data.take_buffer(),
-                                    });
+                                    }));
                                 };
-    
+
                                 return Err(Error::new(InvalidData, "protocol error - 'message' missing some parameters (expects pattern, channel, data)"))
                             },
-                            "subscribe" => {
-                                Err(Error::new(InvalidData, "result from subscribe"))
-                            }
                             "pong" => {
-                                Err(Error::new(InvalidData, "result from ping"))
-                                
+                                // ping response can come as a ['pong'] list
+                                Ok(PubSubEvent::Pong(()))
                             },
-                            _ => {
-                                return Err(Error::new(InvalidData, format!("not impl {}", message_kind.as_str())))
+                            txt => {
+                                return Ok(PubSubEvent::List((txt.into(), v.collect())))
                             }
                         }
                     } else {
-                        Err(Error::new(InvalidData, "message is empty list"))
+                        return Err(Error::new(InvalidData, "pubsub stream error - zero length list - capture stream with socat for bug report"))
                     }
                 },
-                _ => Err(Error::new(InvalidData, "non list RedisValue, this is not an error"))
+                RedisValue::String(v) => {
+                    // ping response can come as a $<l>string
+                    // can non pong values show up here
+                    return Ok(PubSubEvent::String(String::from_utf8_lossy(&v).to_string()))
+                },
+                RedisValue::Int(v) => {
+                    // not expected
+                    return Ok(PubSubEvent::Int(v))
+                },
+                RedisValue::Ok(v) => {
+                    return Ok(PubSubEvent::Ok(v))
+                },
+                RedisValue::Error(v) => {
+                    return Ok(PubSubEvent::Error(v))
+                },
             }
         }
     }
-    
+
 
     pub struct RedisCodec;
 
@@ -137,6 +157,7 @@ mod redis_protocol {
 
             match read_value(reader) {
                 Ok(val) => {
+                    // have a valid RESP RedisValue
                     src.advance(src.len() - reader.len());
                     Ok(Some(val))
                 }
@@ -147,7 +168,7 @@ mod redis_protocol {
         }
     }
 
-    fn read_length(src: &mut &[u8]) -> io::Result<i32> {
+    fn read_length(src: &mut &[u8]) -> io::Result<i64> {
         for i in 0.. {
             let Some([l, r]) = src.get(i..i+2) else {
                 return Err(Error::new(UnexpectedEof, ""))

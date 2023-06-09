@@ -4,7 +4,7 @@ use tokio_util::codec::FramedRead;
 use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
 
-use redis_pp::{ RedisCodec, RedisValue, PubSubMessage };
+use redis_pp::{ RedisCodec, RedisValue, PubSubEvent, PubSubMessage };
 
 fn redis_subscribe(channel_name: String) -> String {
     format!("*2\r\n$9\r\nsubscribe\r\n${}\r\n{}\r\n", channel_name.len(), channel_name)
@@ -30,14 +30,24 @@ async fn main() {
 
     while let Some(res) = frames.next().await {
         match res {
-            Ok(val) => {
-                match PubSubMessage::try_from(val) {
-                    Ok(temp) => {
-                        println!("{:?} {} bytes", temp.channel_name, temp.data.len());
-                    },
-                    Err(e) => println!("Error in conversion: {:?}", e),
+            // Ok(val) => {
+            //     match PubSubMessage::try_from(val) {
+            //         Ok(temp) => {
+            //             println!("{:?} {} bytes", temp.channel_name, temp.data.len());
+            //         },
+            //         Err(e) => println!("Error in conversion: {:?}", e),
+            //     }
+            // },
+            Ok(v) => {
+                if let Ok(psmsg)=PubSubEvent::try_from(v) {
+                    match psmsg {
+                        PubSubEvent::Message(msg) => {
+                            println!("MESSAGE:{}", msg.channel_name);
+                        },
+                        _ => {}
+                    }
                 }
-            },
+            }
             Err(e) => println!("Error: {:?}", e),
         }
     }
