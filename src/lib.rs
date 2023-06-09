@@ -65,15 +65,20 @@ mod redis_protocol {
         pub data: Vec<u8>
     }
 
-    pub struct PubSubOther {
-        pub message_name: String,
-        pub parts: Vec<RedisValue>
+    impl PubSubMessage {
+        fn to_str(&self) -> Result<String, io::Error> {
+            Ok(std::str::from_utf8(&self.data)
+            .or(Err(Error::new(
+                InvalidData,
+                "buffer cannot be represented by a utf8 string",
+            )))?
+            .into())
+        }
     }
 
     pub enum PubSubEvent {
         Message(PubSubMessage),
-        //PMessage(PubSubMessage),
-        Pong(()),
+        Pong(String),
         List((String, Vec<RedisValue>)),
         String(String),
         Int(i64),
@@ -83,6 +88,7 @@ mod redis_protocol {
 
     impl TryFrom<RedisValue> for PubSubEvent {
         type Error = io::Error;
+
         fn try_from(value: RedisValue) -> Result<Self, io::Error> {
             match value {
                 RedisValue::List(v) => {
@@ -111,9 +117,24 @@ mod redis_protocol {
 
                                 return Err(Error::new(InvalidData, "protocol error - 'message' missing some parameters (expects pattern, channel, data)"))
                             },
-                            "pong" => {
-                                // ping response can come as a ['pong'] list
-                                Ok(PubSubEvent::Pong(()))
+                            "subscribe" => {
+                                // "subscribe" response can end up here [ "subscribe", "channel_name", RedisValue::Int ]
+                                //
+                                // todo : is N the number of channels in the list of channels subscribed to, subscribe can take multiple arguments
+                                //
+                                // https://redis.io/commands/subscribe/ -> for each channel, one message with the first element being the string "subscribe" is pushed as a confirmation that the command succeeded.
+                                //
+                                // *3
+                                // $9
+                                // subscribe
+                                // $20
+                                // groupbroadcast::gpio
+                                // :1
+                                //
+                                return Ok(PubSubEvent::List(("subscribe".into(), v.collect())))
+                            },
+                            "unsubscribe" => {
+                                return Ok(PubSubEvent::List(("unsubscribe".into(), v.collect())))
                             },
                             txt => {
                                 return Ok(PubSubEvent::List((txt.into(), v.collect())))
@@ -125,14 +146,38 @@ mod redis_protocol {
                 },
                 RedisValue::String(v) => {
                     // ping response can come as a $<l>string
-                    // can non pong values show up here
-                    return Ok(PubSubEvent::String(String::from_utf8_lossy(&v).to_string()))
+                    //
+                    // https://redis.io/commands/ping/ -> Bulk string reply the argument provided, when applicable.
+                    //
+                    // we don't know the contents of this so just return string?
+                    // also, can any other string show up, seems like this could just be Pong(v)
+                    //
+                    // todo : create test case for bulk string ping reply
+                    //
+                    return Ok(PubSubEvent::Pong(String::from_utf8_lossy(&v).to_string()))
+                    //return Ok(PubSubEvent::String(String::from_utf8_lossy(&v).to_string()))
                 },
                 RedisValue::Int(v) => {
-                    // not expected
+                    // not expected, can this happen? SUBSCRIBE returns number of channels in [ "SUBSCRIBE", x ] i believe
+                    //
+                    // todo : confirm Rx message on Tx SUBSCRIBE
+                    //
                     return Ok(PubSubEvent::Int(v))
                 },
                 RedisValue::Ok(v) => {
+                    //
+                    // https://redis.io/commands/ping/ -> Simple string reply, and specifically PONG, when no argument is provided.
+                    //
+                    // redis> PING
+                    // "PONG"   -> +PONG<crlf>
+                    //
+                    // todo : create test case for simple string reply
+                    //
+
+                    if v=="PONG" {
+                        return Ok(PubSubEvent::Pong(v.into()))
+                    }
+
                     return Ok(PubSubEvent::Ok(v))
                 },
                 RedisValue::Error(v) => {
