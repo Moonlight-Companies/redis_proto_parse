@@ -18,12 +18,104 @@ mod redis_protocol {
 
     #[derive(Debug)]
     pub enum RedisValue {
-        String(String),
+        String(Vec<u8>),
         Int(i32),
         List(Vec<RedisValue>),
         Ok(String),
         Error(String),
     }
+
+    impl RedisValue {
+        fn as_message_kind(&self) -> String {
+            match self {
+                RedisValue::List(v) => {
+                    if let Some(vv)=v.get(0) {
+                        return match vv.as_str() {
+                            Ok(txt) => txt,
+                            Err(_) => "unknown".into(),
+                        }
+                    }
+
+                    "unknown".into()
+                },
+                _ => "unknown".into(),
+            }
+        }
+        fn as_str(&self) -> io::Result<String> {
+            Ok(match self {
+                RedisValue::String(data) => {
+                    std::str::from_utf8(&data)
+                    .or(Err(Error::new(
+                        InvalidData,
+                        "buffer cannot be represented by a utf8 string",
+                    )))?
+                    .trim()
+                    .into()
+                },
+                RedisValue::Int(data) => {
+                    format!("{}", data)
+                },
+                RedisValue::Ok(data) => {
+                    format!("{}", data)
+                },
+                RedisValue::Error(data) => {
+                    format!("{}", data)
+                },
+                _ => "".into()
+            })
+        }
+
+        fn take_buffer(self) -> Vec<u8> {
+            match self {
+                RedisValue::String(data) => {
+                    data
+                },
+                _ => self.as_str().unwrap().into_bytes()
+            }
+        }
+    }
+
+    pub struct PubSubMessage {
+        channel_name: String,
+        channel_pattern: Option<String>,
+        data: Vec<u8>
+    }
+
+    impl TryFrom<RedisValue> for PubSubMessage {
+        type Error = io::Error;
+        fn try_from(value: RedisValue) -> Result<Self, io::Error> {
+            match value {
+                RedisValue::List(v) => {
+                    match v.len() {
+                        3 => {
+                            // let rv_channel = v[1].as_str();
+                            // let rv_data = &v[2];
+                            // return Ok(PubSubMessage {
+                            //     channel_name: rv_channel?,
+                            //     channel_pattern: None,
+                            //     data: rv_data.take_buffer(),
+                            // });
+
+                            if let [ _, rv_channel, rv_data, .. ] = v[..] {
+                                return Ok(PubSubMessage {
+                                    channel_name: rv_channel.as_str()?,
+                                    channel_pattern: None,
+                                    data: rv_data.take_buffer(),
+                                });
+                            } else {
+                                return Err(Error::new(InvalidData, "not a pub/sub message"))
+                            }
+                        },
+                        _ => {
+                            return Err(Error::new(InvalidData, "not a pub/sub message"))
+                        }
+                    }
+                },
+                _ => Err(Error::new(InvalidData, "not a pub/sub message"))
+            }
+        }
+    }
+    
 
     pub struct RedisCodec;
 
@@ -85,7 +177,8 @@ mod redis_protocol {
     }
 
     fn read_value(src: &mut &[u8]) -> io::Result<RedisValue> {
-        Ok(match take_u8(src)? {
+        let kind=take_u8(src)?;
+        Ok(match kind {
             PROTO_STRING => read_redis_string(src)?,
             PROTO_INT => read_redis_int(src)?,
             PROTO_LIST => read_redis_list(src)?,
@@ -122,14 +215,8 @@ mod redis_protocol {
         let buf = take_vec(src, string_length as usize)?;
         pop_crlf(src)?;
 
-        let str = std::str::from_utf8(&buf)
-            .or(Err(Error::new(
-                InvalidData,
-                "string read failed (not a string)",
-            )))?
-            .trim();
-
-        Ok(RedisValue::String(str.into()))
+        // Note - this is a raw buffer of non utf8 values, afaik rust "String" wants valid utf8
+        Ok(RedisValue::String(buf))
     }
 
     fn read_redis_int(src: &mut &[u8]) -> io::Result<RedisValue> {
