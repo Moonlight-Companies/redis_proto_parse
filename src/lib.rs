@@ -30,10 +30,7 @@ mod redis_protocol {
             match self {
                 RedisValue::List(v) => {
                     if let Some(vv)=v.get(0) {
-                        return match vv.as_str() {
-                            Ok(txt) => txt,
-                            Err(_) => "unknown".into(),
-                        }
+                        return vv.as_str();
                     }
 
                     "unknown".into()
@@ -41,16 +38,10 @@ mod redis_protocol {
                 _ => "unknown".into(),
             }
         }
-        fn as_str(&self) -> io::Result<String> {
-            Ok(match self {
+        fn as_str(&self) -> String {
+            match self {
                 RedisValue::String(data) => {
-                    std::str::from_utf8(&data)
-                    .or(Err(Error::new(
-                        InvalidData,
-                        "buffer cannot be represented by a utf8 string",
-                    )))?
-                    .trim()
-                    .into()
+                    String::from_utf8_lossy(&data).to_string()
                 },
                 RedisValue::Int(data) => {
                     format!("{}", data)
@@ -62,7 +53,7 @@ mod redis_protocol {
                     format!("{}", data)
                 },
                 _ => "".into()
-            })
+            }
         }
 
         fn take_buffer(self) -> Vec<u8> {
@@ -70,7 +61,7 @@ mod redis_protocol {
                 RedisValue::String(data) => {
                     data
                 },
-                _ => self.as_str().unwrap().into_bytes()
+                _ => self.as_str().into_bytes()
             }
         }
     }
@@ -85,39 +76,45 @@ mod redis_protocol {
         type Error = io::Error;
         fn try_from(value: RedisValue) -> Result<Self, io::Error> {
             match value {
-                RedisValue::List(mut v) => {
-                    match v.len() {
-                        3 => {
-                            let mut v = v.into_iter();
-                            if let (Some(rv_kind), Some(rv_channel), Some(rv_data)) = (v.next(), v.next(), v.next()) {
-                                if rv_kind.as_str()? == "message" {
+                RedisValue::List(v) => {
+                    let mut v = v.into_iter();
+                    if let Some(message_kind)=v.next() {
+                        match message_kind.as_str().as_str() {
+                            "message" => {
+                                if let (Some(rv_channel), Some(rv_data)) = (v.next(), v.next()) {
                                     return Ok(PubSubMessage {
-                                        channel_name: rv_channel.as_str()?,
+                                        channel_name: rv_channel.as_str(),
                                         channel_pattern: None,
                                         data: rv_data.take_buffer(),
                                     });
-                                }
-                            };
-
-                            return Err(Error::new(InvalidData, "not a pub/sub message - 3 parameters, not a 'message'"))
-                        },
-                        4 => {
-                            let mut v = v.into_iter();
-                            if let (Some(rv_kind), Some(rv_pattern), Some(rv_channel), Some(rv_data)) = (v.next(), v.next(), v.next(), v.next()) {
-                                if rv_kind.as_str()? == "pmessage" {
+                                };
+    
+                                return Err(Error::new(InvalidData, "not a pub/sub message - 3 parameters, not a 'message'"))
+                            },
+                            "pmessage" => {
+                                if let (Some(rv_pattern), Some(rv_channel), Some(rv_data)) = (v.next(), v.next(), v.next()) {
                                     return Ok(PubSubMessage {
-                                        channel_name: rv_channel.as_str()?,
-                                        channel_pattern: Some(rv_pattern.as_str()?),
+                                        channel_name: rv_channel.as_str(),
+                                        channel_pattern: Some(rv_pattern.as_str()),
                                         data: rv_data.take_buffer(),
                                     });
-                                }
-                            };
-
-                            return Err(Error::new(InvalidData, "not a pub/sub message 2"))
-                        },
-                        _ => {
-                            return Err(Error::new(InvalidData, "not a pub/sub message 3"))
+                                };
+    
+                                return Err(Error::new(InvalidData, "not a pub/sub message 2"))
+                            },
+                            "subscribe" => {
+                                Err(Error::new(InvalidData, "result from subscribe"))
+                            }
+                            "pong" => {
+                                Err(Error::new(InvalidData, "result from ping"))
+                                
+                            },
+                            _ => {
+                                return Err(Error::new(InvalidData, "not a pub/sub message 2"))
+                            }
                         }
+                    } else {
+                        Err(Error::new(InvalidData, "not a pub/sub message"))
                     }
                 },
                 _ => Err(Error::new(InvalidData, "not a pub/sub message 4"))
