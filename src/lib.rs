@@ -89,7 +89,7 @@ mod redis_protocol {
                                     });
                                 };
     
-                                return Err(Error::new(InvalidData, "not a pub/sub message - 3 parameters, not a 'message'"))
+                                return Err(Error::new(InvalidData, "protocol error - 'message' missing some parameters (expects channel, data)"))
                             },
                             "pmessage" => {
                                 if let (Some(rv_pattern), Some(rv_channel), Some(rv_data)) = (v.next(), v.next(), v.next()) {
@@ -100,7 +100,7 @@ mod redis_protocol {
                                     });
                                 };
     
-                                return Err(Error::new(InvalidData, "not a pub/sub message 2"))
+                                return Err(Error::new(InvalidData, "protocol error - 'message' missing some parameters (expects pattern, channel, data)"))
                             },
                             "subscribe" => {
                                 Err(Error::new(InvalidData, "result from subscribe"))
@@ -110,14 +110,14 @@ mod redis_protocol {
                                 
                             },
                             _ => {
-                                return Err(Error::new(InvalidData, "not a pub/sub message 2"))
+                                return Err(Error::new(InvalidData, format!("not impl {}", message_kind.as_str())))
                             }
                         }
                     } else {
-                        Err(Error::new(InvalidData, "not a pub/sub message"))
+                        Err(Error::new(InvalidData, "message is empty list"))
                     }
                 },
-                _ => Err(Error::new(InvalidData, "not a pub/sub message 4"))
+                _ => Err(Error::new(InvalidData, "non list RedisValue, this is not an error"))
             }
         }
     }

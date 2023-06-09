@@ -18,10 +18,13 @@ fn redis_psubscribe(channel_name: String) -> String {
 async fn main() {
     //let file = File::open("./src/proto_traffic.bin").await.unwrap();
 
+    // for regular json data
     let mut socket = TcpStream::connect("bus.dev.moonlightcompanies.com:6379").await.unwrap();
-
     socket.write_all(redis_psubscribe("groupbroadcast::*".into()).as_bytes()).await.unwrap();
-    //socket.write_all(redis_psubscribe("cv::*::camera".into()).as_bytes()).await.unwrap();
+
+    // for camera data
+    // let mut socket = TcpStream::connect("bus.dev.moonlightcompanies.com:6380").await.unwrap();
+    // socket.write_all(redis_psubscribe("cv::*::camera".into()).as_bytes()).await.unwrap();
 
     let mut frames = FramedRead::new(socket, RedisCodec {});
 
