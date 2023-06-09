@@ -4,7 +4,7 @@ use tokio_util::codec::FramedRead;
 use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
 
-use redis_pp::RedisCodec;
+use redis_pp::{ RedisCodec, RedisValue, PubSubMessage };
 
 fn redis_subscribe(channel_name: String) -> String {
     format!("*2\r\n$9\r\nsubscribe\r\n${}\r\n{}\r\n", channel_name.len(), channel_name)
@@ -18,17 +18,23 @@ fn redis_psubscribe(channel_name: String) -> String {
 async fn main() {
     //let file = File::open("./src/proto_traffic.bin").await.unwrap();
 
-    let mut socket = TcpStream::connect("bus.dev.moonlightcompanies.com:6380").await.unwrap();
+    let mut socket = TcpStream::connect("bus.dev.moonlightcompanies.com:6379").await.unwrap();
 
-    //socket.write_all(redis_psubscribe("groupbroadcast::gpio::*".into()).as_bytes()).await.unwrap();
-    socket.write_all(redis_psubscribe("cv::*::camera".into()).as_bytes()).await.unwrap();
+    socket.write_all(redis_psubscribe("groupbroadcast::*".into()).as_bytes()).await.unwrap();
+    //socket.write_all(redis_psubscribe("cv::*::camera".into()).as_bytes()).await.unwrap();
 
     let mut frames = FramedRead::new(socket, RedisCodec {});
 
     while let Some(res) = frames.next().await {
         match res {
-            Ok(val) => println!("message"),
-            //Ok(val) => println!("{:?}", val),
+            Ok(val) => {
+                match PubSubMessage::try_from(val) {
+                    Ok(temp) => {
+                        println!("{:?} {} bytes", temp.channel_name, temp.data.len());
+                    },
+                    Err(e) => println!("Error in conversion: {:?}", e),
+                }
+            },
             Err(e) => println!("Error: {:?}", e),
         }
     }

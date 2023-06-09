@@ -1,6 +1,6 @@
 use std::io::{self, Read};
 
-pub use redis_protocol::{RedisCodec, RedisValue};
+pub use redis_protocol::{RedisCodec, RedisValue, PubSubMessage};
 
 mod redis_protocol {
     use super::*;
@@ -76,42 +76,51 @@ mod redis_protocol {
     }
 
     pub struct PubSubMessage {
-        channel_name: String,
-        channel_pattern: Option<String>,
-        data: Vec<u8>
+        pub channel_name: String,
+        pub channel_pattern: Option<String>,
+        pub data: Vec<u8>
     }
 
     impl TryFrom<RedisValue> for PubSubMessage {
         type Error = io::Error;
         fn try_from(value: RedisValue) -> Result<Self, io::Error> {
             match value {
-                RedisValue::List(v) => {
+                RedisValue::List(mut v) => {
                     match v.len() {
                         3 => {
-                            // let rv_channel = v[1].as_str();
-                            // let rv_data = &v[2];
-                            // return Ok(PubSubMessage {
-                            //     channel_name: rv_channel?,
-                            //     channel_pattern: None,
-                            //     data: rv_data.take_buffer(),
-                            // });
+                            let mut v = v.into_iter();
+                            if let (Some(rv_kind), Some(rv_channel), Some(rv_data)) = (v.next(), v.next(), v.next()) {
+                                if rv_kind.as_str()? == "message" {
+                                    return Ok(PubSubMessage {
+                                        channel_name: rv_channel.as_str()?,
+                                        channel_pattern: None,
+                                        data: rv_data.take_buffer(),
+                                    });
+                                }
+                            };
 
-                            if let [ _, rv_channel, rv_data, .. ] = v[..] {
-                                return Ok(PubSubMessage {
-                                    channel_name: rv_channel.as_str()?,
-                                    channel_pattern: None,
-                                    data: rv_data.take_buffer(),
-                                });
-                            } else {
-                                return Err(Error::new(InvalidData, "not a pub/sub message"))
-                            }
+                            return Err(Error::new(InvalidData, "not a pub/sub message - 3 parameters, not a 'message'"))
+                        },
+                        4 => {
+                            let mut v = v.into_iter();
+                            if let (Some(rv_kind), Some(rv_pattern), Some(rv_channel), Some(rv_data)) = (v.next(), v.next(), v.next(), v.next()) {
+                                if rv_kind.as_str()? == "pmessage" {
+                                    return Ok(PubSubMessage {
+                                        channel_name: rv_channel.as_str()?,
+                                        channel_pattern: Some(rv_pattern.as_str()?),
+                                        data: rv_data.take_buffer(),
+                                    });
+                                }
+                            };
+
+                            return Err(Error::new(InvalidData, "not a pub/sub message 2"))
                         },
                         _ => {
-                            return Err(Error::new(InvalidData, "not a pub/sub message"))
+                            return Err(Error::new(InvalidData, "not a pub/sub message 3"))
                         }
                     }
                 },
-                _ => Err(Error::new(InvalidData, "not a pub/sub message"))
+                _ => Err(Error::new(InvalidData, "not a pub/sub message 4"))
             }
         }
     }
