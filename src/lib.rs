@@ -318,6 +318,236 @@ mod redis_protocol {
     }
 }
 
+pub mod resp_stateful_codec {
+    use std::io::{Error, ErrorKind::*, self};
+
+    use bytes::{BytesMut, Buf};
+
+    use RedisValue::*;
+    use tokio_util::codec::Decoder;
+
+    #[derive(Debug)]
+    pub enum RedisValue {
+        SimpleString(String),
+        Error(String),
+        Integer(i64),
+        BulkString(Option<Vec<u8>>),
+        Array(Option<Vec<RedisValue>>),
+    }
+
+    #[derive(Default)]
+    struct ArrayContext {
+        rem: i64,
+        items: Vec<RedisValue>,
+    }
+
+    impl ArrayContext {
+        fn new(len: i64) -> Self {
+            Self {
+                rem: len,
+                items: Vec::with_capacity(len as usize),
+            }
+        }
+
+        fn push(&mut self, item: RedisValue) {
+            self.items.push(item);
+
+            self.rem -= 1;
+            debug_assert!(self.rem >= 0);
+        }
+
+        fn is_complete(&self) -> bool {
+            self.rem == 0
+        }
+
+        fn items(self) -> Vec<RedisValue> {
+            self.items
+        }
+    }
+
+    enum Op {
+        SimpleString,
+        Error,
+        Integer,
+        BulkString,
+        Array,
+    }
+
+    #[derive(Default)]
+    pub struct RespDecoder {
+        ptr: usize,
+        cached_len: Option<i64>,
+        doing: Option<Op>,
+        stack: Vec<ArrayContext>,
+    }
+
+    impl RespDecoder {
+        fn get_op(&mut self, src: &mut BytesMut) -> io::Result<Op> {
+            let [byte] = *src.split_to(1) else {
+                return Err(Error::new(UnexpectedEof, ""))
+            };
+
+            let op = match byte {
+                b'+' => Op::SimpleString,
+                b'-' => Op::Error,
+                b':' => Op::Integer,
+                b'$' => Op::BulkString,
+                b'*' => Op::Array,
+                _ => return Err(Error::new(InvalidData, "invalid prefix")),
+            };
+
+            Ok(op)
+        }
+
+        /// Returns the index of the next CRLF, or an error if EOF is reached
+        fn next_crlf(&mut self, src: &mut BytesMut) -> io::Result<usize> {
+            loop {
+                let crlf = src.get(self.ptr..self.ptr+2)
+                    .ok_or(Error::new(UnexpectedEof, ""))?;
+
+                if self.ptr > 512_000_000 {
+                    return Err(Error::new(InvalidData, "too long"))
+                }
+
+                if crlf == [b'\r', b'\n'] {
+                    self.ptr = 0;
+                    return Ok(self.ptr)
+                };
+
+                self.ptr += 1;
+            }
+        }
+
+        /// Takes a String and its CRLF delimiter out of the BytesMut instance
+        fn inner_string(&mut self, src: &mut BytesMut) -> io::Result<String> {
+            let idx = self.next_crlf(src)?;
+
+            // todo: investigate if this can be done without a copy
+            let window = src.split_to(idx);
+            let slice_as_str = std::str::from_utf8(&window)
+                .map_err(|_| Error::new(InvalidData, "invalid utf8"))?;
+            
+            src.advance(2);
+            Ok(slice_as_str.into())
+        }
+
+        /// Takes an i64 and its CRLF delimiter out of the BytesMut instance
+        fn inner_i32(&mut self, src: &mut BytesMut) -> io::Result<i64> {
+            let idx = self.next_crlf(src)?;
+
+            let window = src.split_to(idx);
+            let num = std::str::from_utf8(&window)
+                .map_err(|_| Error::new(InvalidData, "invalid utf8"))?
+                .parse()
+                .map_err(|_| Error::new(InvalidData, "invalid integer"))?;
+
+            src.advance(2);
+            Ok(num)
+        }
+
+        fn get_simple_string(&mut self, src: &mut BytesMut) -> io::Result<RedisValue> {
+            Ok(SimpleString(self.inner_string(src)?))
+        }
+
+        fn get_error(&mut self, src: &mut BytesMut) -> io::Result<RedisValue> {
+            Ok(Error(self.inner_string(src)?))
+        }
+
+        fn get_integer(&mut self, src: &mut BytesMut) -> io::Result<RedisValue> {
+            Ok(Integer(self.inner_i32(src)?))
+        }
+
+        fn get_bulk_string(&mut self, src: &mut BytesMut) -> io::Result<RedisValue> {
+            // if the length has already been calculated, use it
+            let len = match self.cached_len {
+                Some(len) => len,
+                None => {
+                    let len = self.inner_i32(src)?;
+
+                    if len == -1 {
+                        return Ok(BulkString(None))
+                    }
+
+                    self.cached_len = Some(len);
+                    len
+                }
+            };
+            
+            if len > src.len() as i64 {
+                return Err(Error::new(UnexpectedEof, ""))
+            }
+
+            self.cached_len = None;
+            let buf = src.split_to(len as usize).to_vec();
+
+            Ok(BulkString(Some(buf)))
+        }
+
+        fn get_array(&mut self, src: &mut BytesMut) -> io::Result<Option<ArrayContext>> {
+            let len = self.inner_i32(src)?;
+
+            if len == -1 {
+                return Ok(None)
+            }
+
+            Ok(Some(ArrayContext::new(len)))
+        }
+
+        fn cached_decode(&mut self, src: &mut BytesMut) -> io::Result<RedisValue> {
+            loop {
+                let Some(op) = &self.doing else {
+                    self.doing = Some(self.get_op(src)?);
+                    continue
+                };
+
+                let mut val = match op {
+                    Op::SimpleString => self.get_simple_string(src)?,
+                    Op::Error => self.get_error(src)?,
+                    Op::Integer => self.get_integer(src)?,
+                    Op::BulkString => self.get_bulk_string(src)?,
+                    Op::Array => match self.get_array(src)? {
+                        None => Array(None),
+                        Some(ctx) if ctx.is_complete() => Array(Some(ctx.items())),
+                        Some(ctx) => {
+                            self.stack.push(ctx);
+                            continue
+                        },
+                    },
+                };
+                self.doing = None;
+    
+                loop {
+                    let Some(mut ctx) = self.stack.pop() else { return Ok(val) };
+
+                    ctx.push(val);
+                    if !ctx.is_complete() {
+                        self.stack.push(ctx);
+                        break;
+                    }
+
+                    val = RedisValue::Array(Some(ctx.items()));
+                }   
+            }
+        }
+    }
+
+    impl Decoder for RespDecoder {
+        type Item = RedisValue;
+        type Error = io::Error;
+
+        fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<Self::Item>> {
+            match self.cached_decode(src) {
+                // if we get a value, return it
+                Ok(val) => Ok(Some(val)),
+                // if we get an unexpected EOF, we need to wait for more data
+                Err(e) if e.kind() == UnexpectedEof => Ok(None),
+                // if we get any other error, we need to return it
+                Err(e) => Err(e),
+            }
+        }
+    }
+}
+
 fn take_arr<const N: usize>(src: &mut impl Read) -> io::Result<[u8; N]> {
     let mut buf = [0; N];
     src.read_exact(&mut buf)?;

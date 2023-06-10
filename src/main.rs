@@ -26,29 +26,15 @@ async fn main() {
     // let mut socket = TcpStream::connect("bus.dev.moonlightcompanies.com:6380").await.unwrap();
     // socket.write_all(redis_psubscribe("cv::*::camera".into()).as_bytes()).await.unwrap();
 
-    let mut frames = FramedRead::new(socket, RedisCodec {});
+    let mut frames = FramedRead::new(socket, redis_pp::resp_stateful_codec::RespDecoder::default());
 
     while let Some(res) = frames.next().await {
-        match res {
-            // Ok(val) => {
-            //     match PubSubMessage::try_from(val) {
-            //         Ok(temp) => {
-            //             println!("{:?} {} bytes", temp.channel_name, temp.data.len());
-            //         },
-            //         Err(e) => println!("Error in conversion: {:?}", e),
-            //     }
-            // },
-            Ok(v) => {
-                if let Ok(psmsg)=PubSubEvent::try_from(v) {
-                    match psmsg {
-                        PubSubEvent::Message(msg) => {
-                            println!("MESSAGE:{}", msg.channel_name);
-                        },
-                        _ => {}
-                    }
-                }
-            }
-            Err(e) => println!("Error: {:?}", e),
-        }
+        println!("GOT: {:?}", res);
     }
 }
+
+
+
+
+
+
