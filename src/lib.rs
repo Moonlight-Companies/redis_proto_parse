@@ -1,6 +1,8 @@
 use std::io::{self, Read};
 
-pub mod stateful;
+pub use self::resp::RespCodec;
+
+pub mod resp;
 
 pub use redis_protocol::{PubSubEvent, PubSubMessage, RedisCodec, RedisValue};
 

@@ -1,21 +1,9 @@
 use std::io::{self, Error, ErrorKind::*};
 
 use bytes::{Buf, BytesMut};
-use tokio_util::codec::Decoder;
 
-use self::RedisValue::*;
-
-// similar to the other one but this has options for bs and arr
-// should probably make some nice api for creating these so you
-// could feed a encoder this and it'd work normally
-#[derive(Debug)]
-pub enum RedisValue {
-    SimpleString(String),
-    Error(String),
-    Integer(i64),
-    BulkString(Option<Vec<u8>>),
-    Array(Option<Vec<RedisValue>>),
-}
+use crate::resp::RespValue;
+use RespValue::*;
 
 #[derive(Debug)]
 enum Op {
@@ -29,7 +17,7 @@ enum Op {
 #[derive(Default)]
 struct ArrayContext {
     rem: i64,
-    items: Vec<RedisValue>,
+    items: Vec<RespValue>,
 }
 
 impl ArrayContext {
@@ -40,7 +28,7 @@ impl ArrayContext {
         }
     }
 
-    fn push(&mut self, item: RedisValue) {
+    fn push(&mut self, item: RespValue) {
         self.items.push(item);
 
         self.rem -= 1;
@@ -51,7 +39,7 @@ impl ArrayContext {
         self.rem == 0
     }
 
-    fn items(self) -> Vec<RedisValue> {
+    fn items(self) -> Vec<RespValue> {
         self.items
     }
 }
@@ -60,15 +48,15 @@ impl ArrayContext {
 pub struct RespDecoder {
     ptr: usize,
     cached_len: Option<i64>,
-    doing: Option<Op>,
+    op: Option<Op>,
     stack: Vec<ArrayContext>,
 }
 
 impl RespDecoder {
     /// Returns the next operation, storing it in case of partial read.
     fn get_op(&mut self, src: &mut BytesMut) -> io::Result<&Op> {
-        if self.doing.is_none() {
-            if src.len() == 0 {
+        if self.op.is_none() {
+            if src.is_empty() {
                 return Err(Error::new(UnexpectedEof, ""));
             }
 
@@ -81,10 +69,10 @@ impl RespDecoder {
                 _ => return Err(Error::new(InvalidData, "invalid prefix")),
             };
 
-            self.doing = Some(op);
+            self.op = Some(op);
         }
         // safety: is set 100%
-        unsafe { Ok(self.doing.as_ref().unwrap_unchecked()) }
+        unsafe { Ok(self.op.as_ref().unwrap_unchecked()) }
     }
 
     /// Returns the index of the next CRLF, or an error if EOF is reached.
@@ -135,19 +123,19 @@ impl RespDecoder {
         Ok(num)
     }
 
-    fn get_simple_string(&mut self, src: &mut BytesMut) -> io::Result<RedisValue> {
+    fn get_simple_string(&mut self, src: &mut BytesMut) -> io::Result<RespValue> {
         Ok(SimpleString(self.inner_string(src)?))
     }
 
-    fn get_error(&mut self, src: &mut BytesMut) -> io::Result<RedisValue> {
+    fn get_error(&mut self, src: &mut BytesMut) -> io::Result<RespValue> {
         Ok(Error(self.inner_string(src)?))
     }
 
-    fn get_integer(&mut self, src: &mut BytesMut) -> io::Result<RedisValue> {
+    fn get_integer(&mut self, src: &mut BytesMut) -> io::Result<RespValue> {
         Ok(Integer(self.inner_i32(src)?))
     }
 
-    fn get_bulk_string(&mut self, src: &mut BytesMut) -> io::Result<RedisValue> {
+    fn get_bulk_string(&mut self, src: &mut BytesMut) -> io::Result<RespValue> {
         // if the length has already been calculated, use it
         let len = match self.cached_len {
             Some(len) => len,
@@ -189,7 +177,7 @@ impl RespDecoder {
     }
 
     /// Begin decoding the BytesMut instance, or resume where it left off.
-    fn resume_decode(&mut self, src: &mut BytesMut) -> io::Result<RedisValue> {
+    pub fn resume_decode(&mut self, src: &mut BytesMut) -> io::Result<RespValue> {
         loop {
             let mut val = match self.get_op(src)? {
                 Op::SimpleString => self.get_simple_string(src)?,
@@ -201,13 +189,13 @@ impl RespDecoder {
                     Some(ctx) if ctx.is_complete() => Array(Some(ctx.items())),
                     Some(ctx) => {
                         self.stack.push(ctx);
-                        self.doing = None;
+                        self.op = None;
                         continue;
                     }
                 },
             };
 
-            self.doing = None;
+            self.op = None;
 
             loop {
                 let Some(mut ctx) = self.stack.pop() else { return Ok(val) };
@@ -218,26 +206,8 @@ impl RespDecoder {
                     break;
                 }
 
-                val = RedisValue::Array(Some(ctx.items()));
+                val = Array(Some(ctx.items()));
             }
         }
     }
 }
-
-impl Decoder for RespDecoder {
-    type Item = RedisValue;
-    type Error = io::Error;
-
-    fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<Self::Item>> {
-        match self.resume_decode(src) {
-            // if we get a value, return it
-            Ok(val) => Ok(Some(val)),
-            // if we get an unexpected EOF, we need to wait for more data
-            Err(e) if e.kind() == UnexpectedEof => Ok(None),
-            // if we get any other error, we need to return it
-            Err(e) => Err(e),
-        }
-    }
-}
-
-// todo respvalue encoder
