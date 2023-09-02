@@ -3,14 +3,14 @@ use std::io::{self, ErrorKind};
 use bytes::BytesMut;
 use tokio_util::codec::{Decoder, Encoder};
 
-pub use self::value::RespValue;
+use value::RespValue;
 
 mod decoder;
 mod encoder;
-mod value;
+pub mod value;
 
 #[derive(Default)]
-pub struct RespCodec {
+pub(crate) struct RespCodec {
     dec: decoder::RespDecoder,
 }
 

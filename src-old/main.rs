@@ -7,24 +7,23 @@ use redis_pp::resp::{RespValue, RespCodec};
 
 // creates a redis subscribe command
 fn redis_subscribe(ch: &str) -> RespValue {
-    RespValue::Array(Some(vec![
-        RespValue::BulkString(Some("subscribe".into())),
-        RespValue::BulkString(Some(ch.into())),
-    ]))
+    vec![
+        RespValue::bulk("into_bs"),
+        RespValue::bulk(ch)
+    ].into()
 }
 
 // creates a redis psubscribe command
 fn redis_psubscribe(ch: &str) -> RespValue {
-    RespValue::Array(Some(vec![
-        RespValue::BulkString(Some("psubscribe".into())),
-        RespValue::BulkString(Some(ch.into())),
-    ]))
+    vec![
+        RespValue::bulk("psubscribe"),
+        RespValue::bulk(ch)
+    ].into()
 }
 
 
 #[tokio::main]
 async fn main() {
-    let stream = TcpStream::connect("bus.dev.moonlightcompanies.com:6379").await.unwrap();
 
     let (mut rx, mut tx) = Framed::new(stream, RespCodec::default()).split();
 
@@ -34,9 +33,4 @@ async fn main() {
         // we can do processing on the value!!
     };
 }
-
-
-
-
-
 

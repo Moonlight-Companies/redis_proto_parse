@@ -5,6 +5,8 @@ use bytes::{Buf, BytesMut};
 use crate::resp::RespValue;
 use RespValue::*;
 
+use super::value::*;
+
 #[derive(Debug)]
 enum Op {
     SimpleString,
@@ -110,7 +112,7 @@ impl RespDecoder {
     }
 
     /// Takes an i64 and its CRLF delimiter out of the BytesMut instance.
-    fn inner_i32(&mut self, src: &mut BytesMut) -> io::Result<i64> {
+    fn inner_i64(&mut self, src: &mut BytesMut) -> io::Result<i64> {
         let idx = self.next_crlf(src)?;
 
         let window = src.split_to(idx);
@@ -124,15 +126,15 @@ impl RespDecoder {
     }
 
     fn get_simple_string(&mut self, src: &mut BytesMut) -> io::Result<RespValue> {
-        Ok(SimpleString(self.inner_string(src)?))
+        Ok(simple(self.inner_string(src)?))
     }
 
     fn get_error(&mut self, src: &mut BytesMut) -> io::Result<RespValue> {
-        Ok(Error(self.inner_string(src)?))
+        Ok(err(self.inner_string(src)?))
     }
 
     fn get_integer(&mut self, src: &mut BytesMut) -> io::Result<RespValue> {
-        Ok(Integer(self.inner_i32(src)?))
+        Ok(Integer(self.inner_i64(src)?))
     }
 
     fn get_bulk_string(&mut self, src: &mut BytesMut) -> io::Result<RespValue> {
@@ -140,7 +142,7 @@ impl RespDecoder {
         let len = match self.cached_len {
             Some(len) => len,
             None => {
-                let len = self.inner_i32(src)?;
+                let len = self.inner_i64(src)?;
 
                 if len == -1 {
                     return Ok(BulkString(None));
@@ -156,10 +158,10 @@ impl RespDecoder {
         }
 
         self.cached_len = None;
-        let buf = src.split_to(len as usize).to_vec();
+        let buf: Box<[_]> = src.split_to(len as usize)[..].into();
         src.advance(2);
 
-        Ok(BulkString(Some(buf)))
+        Ok(bulk(buf))
     }
 
     /// Returns an ArrayContext instead of a RedisValue. When resume_decode
@@ -167,7 +169,7 @@ impl RespDecoder {
     /// to the topmost ArrayContext on the stack, which keeps track of how
     /// many items are left to be decoded.
     fn get_array_context(&mut self, src: &mut BytesMut) -> io::Result<Option<ArrayContext>> {
-        let len = self.inner_i32(src)?;
+        let len = self.inner_i64(src)?;
 
         if len == -1 {
             return Ok(None);
@@ -177,7 +179,7 @@ impl RespDecoder {
     }
 
     /// Begin decoding the BytesMut instance, or resume where it left off.
-    pub fn resume_decode(&mut self, src: &mut BytesMut) -> io::Result<RespValue> {
+    pub(crate) fn resume_decode(&mut self, src: &mut BytesMut) -> io::Result<RespValue> {
         loop {
             let mut val = match self.get_op(src)? {
                 Op::SimpleString => self.get_simple_string(src)?,
@@ -186,7 +188,7 @@ impl RespDecoder {
                 Op::BulkString => self.get_bulk_string(src)?,
                 Op::Array => match self.get_array_context(src)? {
                     None => Array(None),
-                    Some(ctx) if ctx.is_complete() => Array(Some(ctx.items())),
+                    Some(ctx) if ctx.is_complete() => ctx.items().into(),
                     Some(ctx) => {
                         self.stack.push(ctx);
                         self.op = None;
@@ -206,7 +208,7 @@ impl RespDecoder {
                     break;
                 }
 
-                val = Array(Some(ctx.items()));
+                val = ctx.items().into();
             }
         }
     }

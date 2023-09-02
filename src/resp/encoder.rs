@@ -1,8 +1,8 @@
-use bytes::{BytesMut, BufMut};
+use bytes::{BufMut, BytesMut};
 
 use crate::resp::RespValue;
 
-pub fn resp_encode(item: RespValue, dst: &mut BytesMut) {
+pub(crate) fn resp_encode(item: RespValue, dst: &mut BytesMut) {
     match item {
         RespValue::SimpleString(s) => {
             dst.reserve(s.len() + 3);
@@ -10,7 +10,7 @@ pub fn resp_encode(item: RespValue, dst: &mut BytesMut) {
             dst.put_slice(s.as_bytes());
             dst.put_slice(b"\r\n");
         }
-        RespValue::Error(e) => {
+        RespValue::SimpleError(e) => {
             dst.reserve(e.len() + 3);
             dst.put_slice(b"-");
             dst.put_slice(e.as_bytes());
