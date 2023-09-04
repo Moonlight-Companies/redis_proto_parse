@@ -1,0 +1,36 @@
+Subscribe to a list of channels
+
+Tx
+```
+*4
+$9
+subscribe
+$14
+test_channel_1
+$14
+test_channel_2
+$14
+test_channel_3
+```
+
+Rx 3 responses, [ 'SUBSCRIBE', channel_name, index from SUBSCRIBE Tx + 1 ]
+```
+*3
+$9
+subscribe
+$14
+test_channel_1
+:1
+*3
+$9
+subscribe
+$14
+test_channel_2
+:2
+*3
+$9
+subscribe
+$14
+test_channel_3
+:3
+```

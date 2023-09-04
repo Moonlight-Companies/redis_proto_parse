@@ -1,0 +1,13 @@
+Send a plain PING with no arguments
+
+TX
+```
+*1<CRLF>
+$4<CRLF>
+ping<CRLF>
+```
+
+RX
+```
++PONG<CRLF>
+```
