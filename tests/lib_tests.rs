@@ -47,9 +47,9 @@ fn test_ping_bulk() {
 }
 
 #[test]
-fn test_subscribe_single_channel() {
-    let rx_bytes = include_bytes!("../example_test_cases/subscribe_single_channel/Rx.bin");
-    let tx_bytes = include_bytes!("../example_test_cases/subscribe_single_channel/Tx.bin");
+fn test_subscribe_multiple_channels() {
+    let rx_bytes = include_bytes!("../example_test_cases/subscribe_multiple_channels/Rx.bin");
+    let tx_bytes = include_bytes!("../example_test_cases/subscribe_multiple_channels/Tx.bin");
 
     test_generic(&rx_bytes[..], vec![Box::new(RespValue::Array(Some(vec![
         RespValue::BulkString(Some(Box::from("subscribe".as_bytes().to_vec()))),
