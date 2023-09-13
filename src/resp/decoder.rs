@@ -57,24 +57,29 @@ pub struct RespDecoder {
 impl RespDecoder {
     /// Returns the next operation, storing it in case of partial read.
     fn get_op(&mut self, src: &mut BytesMut) -> io::Result<&Op> {
-        if self.op.is_none() {
-            if src.is_empty() {
-                return Err(Error::new(UnexpectedEof, ""));
+        match self.op {
+            Some(_) => {
+                Ok(self.op.as_ref().unwrap())
+            },
+            None => {
+                if src.is_empty() {
+                    return Err(Error::new(UnexpectedEof, ""));
+                }
+
+                let op = match src.get_u8() {
+                    b'+' => Op::SimpleString,
+                    b'-' => Op::Error,
+                    b':' => Op::Integer,
+                    b'$' => Op::BulkString,
+                    b'*' => Op::Array,
+                    _ => return Err(Error::new(InvalidData, format!("invalid prefix byte: {}", src.get_u8()))),
+                };
+
+                self.op = Some(op);
+
+                Ok(self.op.as_ref().unwrap())
             }
-
-            let op = match src.get_u8() {
-                b'+' => Op::SimpleString,
-                b'-' => Op::Error,
-                b':' => Op::Integer,
-                b'$' => Op::BulkString,
-                b'*' => Op::Array,
-                _ => return Err(Error::new(InvalidData, "invalid prefix")),
-            };
-
-            self.op = Some(op);
         }
-        // safety: is set 100%
-        unsafe { Ok(self.op.as_ref().unwrap_unchecked()) }
     }
 
     /// Returns the index of the next CRLF, or an error if EOF is reached.
