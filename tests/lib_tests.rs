@@ -1,12 +1,11 @@
-use redis_proto_parse::resp::{value::*, RespCodec};
+use redis_proto_parse::resp::{value, RespCodec};
 use tokio_util::codec::Decoder;
 use bytes::BytesMut;
 
-fn test_generic(data: &[u8], expected_resp_value: RespValue) {
-    let mut data_mut = BytesMut::from(data);
+fn test_generic(data: &mut BytesMut, expected_resp_value: value::RespValue) {
     let mut codec = RespCodec::default();
 
-    match codec.decode(&mut data_mut) {
+    match codec.decode(data) {
         Ok(Some(resp_value)) => {
             assert_eq!(resp_value, expected_resp_value);
         }
@@ -19,91 +18,83 @@ fn test_generic(data: &[u8], expected_resp_value: RespValue) {
     }
 }
 
-fn test_generic_multiple(data: &[u8], expected: Vec<Box<RespValue>>) {
-    let mut data_mut = BytesMut::from(data);
-    let mut codec = RespCodec::default();
-
+fn test_generic_multiple(data: &mut BytesMut, expected: Vec<value::RespValue>) {
     for expected_resp_value in expected {
-        match codec.decode(&mut data_mut) {
-            Ok(Some(resp_value)) => {
-                assert_eq!(resp_value, *expected_resp_value);
-            }
-            Ok(None) => {
-                panic!("Unexpected EOF");
-            }
-            Err(e) => {
-                panic!("An error occurred: {:?}", e);
-            }
-        }
+        test_generic(data, expected_resp_value)
     }
 }
 
+#[macro_export]
+macro_rules! prepare_data {
+    ($path:expr) => {
+        (
+            bytes::BytesMut::from(&include_bytes!(concat!($path, "/Rx.bin"))[..]),
+            bytes::BytesMut::from(&include_bytes!(concat!($path, "/Tx.bin"))[..]),
+        )
+    };
+}
 
 #[test]
 fn test_ping_simple() {
-    let rx_bytes = include_bytes!("../example_test_cases/ping_simple/Rx.bin");
-    let tx_bytes = include_bytes!("../example_test_cases/ping_simple/Tx.bin");
+    let (mut rx, mut tx) = prepare_data!("../example_test_cases/ping_simple");
 
-    test_generic(&rx_bytes[..], simple("PONG"));
+    test_generic(&mut rx, value::simple("PONG"));
     
-    test_generic(&tx_bytes[..], array(vec![
-        bulk("ping"),
+    test_generic(&mut tx, value::array(vec![
+        value::bulk("ping"),
     ]));
 }
 
 #[test]
 fn test_ping_bulk() {
-    let rx_bytes = include_bytes!("../example_test_cases/ping_bulk/Rx.bin");
-    let tx_bytes = include_bytes!("../example_test_cases/ping_bulk/Tx.bin");
+    let (mut rx, mut tx) = prepare_data!("../example_test_cases/ping_bulk");
 
-    test_generic(&rx_bytes[..], bulk("hello world"));
+    test_generic(&mut rx, value::bulk("hello world"));
     
-    test_generic(&tx_bytes[..], array(vec![
-        bulk("ping"),
-        bulk("hello world"),
+    test_generic(&mut tx, value::array(vec![
+        value::bulk("ping"),
+        value::bulk("hello world"),
     ]));
 }
 
 #[test]
 fn test_subscribe_single_channel() {
-    let rx_bytes = include_bytes!("../example_test_cases/subscribe_single_channel/Rx.bin");
-    let tx_bytes = include_bytes!("../example_test_cases/subscribe_single_channel/Tx.bin");
+    let (mut rx, mut tx) = prepare_data!("../example_test_cases/subscribe_single_channel");
 
-    test_generic(&rx_bytes[..], array(vec![
-        bulk("subscribe"),
-        bulk("test_channel_1"),
-        int(1),
+    test_generic(&mut rx, value::array(vec![
+        value::bulk("subscribe"),
+        value::bulk("test_channel_1"),
+        value::int(1),
     ]));
 
-    test_generic(&tx_bytes[..], array(vec![
-        bulk("subscribe"),
-        bulk("test_channel_1"),
+    test_generic(&mut tx, value::array(vec![
+        value::bulk("subscribe"),
+        value::bulk("test_channel_1"),
     ]));
 }
 
 #[test]
 fn test_subscribe_multiple_channels() {
-    let rx_bytes = include_bytes!("../example_test_cases/subscribe_multiple_channels/Rx.bin");
-    let tx_bytes = include_bytes!("../example_test_cases/subscribe_multiple_channels/Tx.bin");
+    let (mut rx, mut tx) = prepare_data!("../example_test_cases/subscribe_multiple_channels");
 
-    test_generic_multiple(&rx_bytes[..], vec![Box::new(array(vec![
-        bulk("subscribe"),
-        bulk("test_channel_1"),
-        int(1),
-    ])), Box::new(array(vec![
-        bulk("subscribe"),
-        bulk("test_channel_2"),
-        int(2),
-    ])), Box::new(array(vec![
-        bulk("subscribe"),
-        bulk("test_channel_3"),
-        int(3),
-    ]))]);
+    test_generic_multiple(&mut rx, vec![value::array(vec![
+        value::bulk("subscribe"),
+        value::bulk("test_channel_1"),
+        value::int(1),
+    ]), value::array(vec![
+        value::bulk("subscribe"),
+        value::bulk("test_channel_2"),
+        value::int(2),
+    ]), value::array(vec![
+        value::bulk("subscribe"),
+        value::bulk("test_channel_3"),
+        value::int(3),
+    ])]);
     
-    test_generic_multiple(&tx_bytes[..], vec![Box::new(array(vec![
-        bulk("subscribe"),
-        bulk("test_channel_1"),
-        bulk("test_channel_2"),
-        bulk("test_channel_3"),
-    ]))]);
+    test_generic_multiple(&mut tx, vec![value::array(vec![
+        value::bulk("subscribe"),
+        value::bulk("test_channel_1"),
+        value::bulk("test_channel_2"),
+        value::bulk("test_channel_3"),
+    ])]);
 }
