@@ -25,6 +25,10 @@ impl RespValue {
     }
 }
 
+pub fn array(values: Vec<RespValue>) -> RespValue {
+    Array(Some(values))
+}
+
 pub fn simple(s: impl AsRef<str>) -> RespValue {
     SimpleString(Box::from(s.as_ref()))
 }
