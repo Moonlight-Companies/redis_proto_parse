@@ -50,3 +50,23 @@ fn test_bad_op() {
         }
     }
 }
+
+#[test]
+fn test_remaining_buffer_len() {
+    let mut rx = BytesMut::from(&vec![ b'$', b'4', b'\r', b'\n', b'T', b'E', b'S', b'T', b'\r', b'\n', b'$' ][..]);
+
+    let mut codec = RespCodec::default();
+
+    match codec.decode(&mut rx) {
+        Ok(Some(v)) => {
+            assert_eq!(v, value::bulk("TEST"));
+            assert_eq!(rx.len(), 1 as usize);
+        }
+        Ok(None) => {
+            assert!(false, "Decode returned None, but a value was expected.");
+        }
+        Err(e) => {
+            assert!(false, "An error occurred while decoding: {:?}", e);
+        }
+    }
+}
