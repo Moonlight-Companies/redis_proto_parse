@@ -35,13 +35,108 @@ macro_rules! prepare_data {
 }
 
 #[test]
+fn test_op_simplestring() {
+    let mut rx = BytesMut::from(&vec![ b'+', b'T', b'E', b'S', b'T', b'\r', b'\n' ][..]);
+
+    let mut codec = RespCodec::default();
+
+    match codec.decode(&mut rx) {
+        Ok(Some(v)) => {
+            assert_eq!(v, value::simple("TEST"));
+        }
+        Ok(None) => {
+            assert!(false, "Decode returned None, but a value was expected.");
+        }
+        Err(e) => {
+            assert!(false, "An error occurred while decoding: {:?}", e);
+        }
+    }
+}
+
+#[test]
+fn test_op_error() {
+    let mut rx = BytesMut::from(&vec![ b'-', b'T', b'E', b'S', b'T', b'\r', b'\n' ][..]);
+
+    let mut codec = RespCodec::default();
+
+    match codec.decode(&mut rx) {
+        Ok(Some(v)) => {
+            assert_eq!(v, value::err("TEST"));
+        }
+        Ok(None) => {
+            assert!(false, "Decode returned None, but a value was expected.");
+        }
+        Err(e) => {
+            assert!(false, "An error occurred while decoding: {:?}", e);
+        }
+    }
+}
+
+#[test]
+fn test_op_int() {
+    let mut rx = BytesMut::from(&vec![ b':', b'4', b'2', b'\r', b'\n' ][..]);
+
+    let mut codec = RespCodec::default();
+
+    match codec.decode(&mut rx) {
+        Ok(Some(v)) => {
+            assert_eq!(v, value::int(42));
+        }
+        Ok(None) => {
+            assert!(false, "Decode returned None, but a value was expected.");
+        }
+        Err(e) => {
+            assert!(false, "An error occurred while decoding: {:?}", e);
+        }
+    }
+}
+
+#[test]
+fn test_op_bulkstring() {
+    let mut rx = BytesMut::from(&vec![ b'$', b'4', b'\r', b'\n', b'T', b'E', b'S', b'T', b'\r', b'\n' ][..]);
+
+    let mut codec = RespCodec::default();
+
+    match codec.decode(&mut rx) {
+        Ok(Some(v)) => {
+            assert_eq!(v, value::bulk("TEST"));
+        }
+        Ok(None) => {
+            assert!(false, "Decode returned None, but a value was expected.");
+        }
+        Err(e) => {
+            assert!(false, "An error occurred while decoding: {:?}", e);
+        }
+    }
+}
+
+#[test]
+fn test_op_array() {
+    let mut rx = BytesMut::from(&vec![ b'*', b'1', b'\r', b'\n', b'$', b'4', b'\r', b'\n', b'T', b'E', b'S', b'T', b'\r', b'\n' ][..]);
+
+    let mut codec = RespCodec::default();
+
+    match codec.decode(&mut rx) {
+        Ok(Some(v)) => {
+            assert_eq!(v, value::array(vec![value::bulk("TEST")]));
+        }
+        Ok(None) => {
+            assert!(false, "Decode returned None, but a value was expected.");
+        }
+        Err(e) => {
+            assert!(false, "An error occurred while decoding: {:?}", e);
+        }
+    }
+}
+
+#[test]
 fn test_missing_frame_terminator() {
     let mut rx = BytesMut::from(&vec![ 0x2b, 0x50, 0x4f, 0x4e, 0x47 ][..]);
 
     let mut codec = RespCodec::default();
 
     match codec.decode(&mut rx) {
-        Ok(Some(resp_value)) => {
+        Ok(Some(_)) => {
             // no value should return, test data has no CRLF
             panic!("unexpected value");
         }
@@ -72,12 +167,12 @@ fn test_bad_op() {
                 panic!("expected error because of invalid op (some)")
             }
             Ok(None) => {
-                // should not get None here because there is a byte (0x12) and no op set
+                // should not get None here because there is a byte (i) and no op set
                 panic!("expected error because of invalid op (none)")
             }
             Err(e) => {
                 assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
-                assert_eq!(e.to_string(), format!("invalid prefix byte: {:#04x}", i));
+                assert_eq!(e.to_string(), format!("invalid opcode byte: {:#04x}", i));
             }
         }
     }

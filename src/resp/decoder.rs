@@ -7,7 +7,7 @@ use RespValue::*;
 
 use super::value::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum Op {
     SimpleString,
     Error,
@@ -56,10 +56,10 @@ pub struct RespDecoder {
 
 impl RespDecoder {
     /// Returns the next operation, storing it in case of partial read.
-    fn get_op(&mut self, src: &mut BytesMut) -> io::Result<&Op> {
+    fn get_op(&mut self, src: &mut BytesMut) -> io::Result<Op> {
         match self.op {
-            Some(_) => {
-                Ok(self.op.as_ref().unwrap())
+            Some(v) => {
+                Ok(v)
             },
             None => {
                 if src.is_empty() {
@@ -67,18 +67,16 @@ impl RespDecoder {
                 }
 
                 let opcode= src.get_u8();
-                let op = match opcode {
-                    b'+' => Op::SimpleString,
-                    b'-' => Op::Error,
-                    b':' => Op::Integer,
-                    b'$' => Op::BulkString,
-                    b'*' => Op::Array,
-                    _ => return Err(Error::new(InvalidData, format!("invalid prefix byte: {:#04x}", opcode))),
+                self.op = match opcode {
+                    b'+' => Some(Op::SimpleString),
+                    b'-' => Some(Op::Error),
+                    b':' => Some(Op::Integer),
+                    b'$' => Some(Op::BulkString),
+                    b'*' => Some(Op::Array),
+                    _ => return Err(Error::new(InvalidData, format!("invalid opcode byte: {:#04x}", opcode))),
                 };
 
-                self.op = Some(op);
-
-                Ok(self.op.as_ref().unwrap())
+                Ok(self.op.unwrap())
             }
         }
     }
