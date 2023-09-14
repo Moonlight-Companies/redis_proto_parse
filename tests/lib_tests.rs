@@ -98,3 +98,14 @@ fn test_subscribe_multiple_channels() {
         value::bulk("test_channel_3"),
     ])]);
 }
+
+#[test]
+fn test_debug_fmt() {
+    let v=value::array(vec![
+        value::bulk("subscribe"),
+        value::bulk("test_channel_1"),
+        value::int(1),
+    ]);
+
+    assert_eq!(format!("{:?}", v), "Array<3>([BulkString(\"subscribe\"), BulkString(\"test_channel_1\"), Integer(1)]))")
+}
