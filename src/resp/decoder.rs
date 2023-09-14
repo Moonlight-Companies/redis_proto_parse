@@ -66,13 +66,14 @@ impl RespDecoder {
                     return Err(Error::new(UnexpectedEof, ""));
                 }
 
-                let op = match src.get_u8() {
+                let opcode= src.get_u8();
+                let op = match opcode {
                     b'+' => Op::SimpleString,
                     b'-' => Op::Error,
                     b':' => Op::Integer,
                     b'$' => Op::BulkString,
                     b'*' => Op::Array,
-                    _ => return Err(Error::new(InvalidData, format!("invalid prefix byte: {}", src.get_u8()))),
+                    _ => return Err(Error::new(InvalidData, format!("invalid prefix byte: {:#04x}", opcode))),
                 };
 
                 self.op = Some(op);

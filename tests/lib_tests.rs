@@ -28,15 +28,64 @@ fn test_generic_multiple(data: &mut BytesMut, expected: Vec<value::RespValue>) {
 macro_rules! prepare_data {
     ($path:expr) => {
         (
-            bytes::BytesMut::from(&include_bytes!(concat!($path, "/Rx.bin"))[..]),
-            bytes::BytesMut::from(&include_bytes!(concat!($path, "/Tx.bin"))[..]),
+            bytes::BytesMut::from(&include_bytes!(concat!("../example_test_cases/", $path, "/Rx.bin"))[..]),
+            bytes::BytesMut::from(&include_bytes!(concat!("../example_test_cases/", $path, "/Tx.bin"))[..]),
         )
     };
 }
 
 #[test]
+fn test_missing_frame_terminator() {
+    let mut rx = BytesMut::from(&vec![ 0x2b, 0x50, 0x4f, 0x4e, 0x47 ][..]);
+
+    let mut codec = RespCodec::default();
+
+    match codec.decode(&mut rx) {
+        Ok(Some(resp_value)) => {
+            // no value should return, test data has no CRLF
+            panic!("unexpected value");
+        }
+        Ok(None) => {
+            // op should be equal to SimpleString, remaining buffer should be "PONG", codec waiting for CRLF
+            assert_eq!(rx.len(), 4 as usize);
+        }
+        Err(e) => {
+            panic!("An error occurred: {:?}", e);
+        }
+    }
+}
+
+#[test]
+fn test_bad_op() {
+    let skip= vec![b'+', b'-', b':',  b'$', b'*'];
+
+    // test each opcode byte from 0..=255 excluding actual opcodes
+    for i in 0..=255 {
+        if skip.contains(&i) {
+            continue;
+        }
+        let mut data = BytesMut::from(&vec![ i as u8, 0x50, 0x4f, 0x4e, 0x47 ][..]);
+        let mut codec = RespCodec::default();
+        match codec.decode(&mut data) {
+            Ok(Some(_)) => {
+                // no value should return, test data has no CRLF
+                panic!("expected error because of invalid op (some)")
+            }
+            Ok(None) => {
+                // should not get None here because there is a byte (0x12) and no op set
+                panic!("expected error because of invalid op (none)")
+            }
+            Err(e) => {
+                assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
+                assert_eq!(e.to_string(), format!("invalid prefix byte: {:#04x}", i));
+            }
+        }
+    }
+}
+
+#[test]
 fn test_ping_simple() {
-    let (mut rx, mut tx) = prepare_data!("../example_test_cases/ping_simple");
+    let (mut rx, mut tx) = prepare_data!("ping_simple");
 
     test_generic(&mut rx, value::simple("PONG"));
     
@@ -47,7 +96,7 @@ fn test_ping_simple() {
 
 #[test]
 fn test_ping_bulk() {
-    let (mut rx, mut tx) = prepare_data!("../example_test_cases/ping_bulk");
+    let (mut rx, mut tx) = prepare_data!("ping_bulk");
 
     test_generic(&mut rx, value::bulk("hello world"));
     
@@ -59,7 +108,7 @@ fn test_ping_bulk() {
 
 #[test]
 fn test_subscribe_single_channel() {
-    let (mut rx, mut tx) = prepare_data!("../example_test_cases/subscribe_single_channel");
+    let (mut rx, mut tx) = prepare_data!("subscribe_single_channel");
 
     test_generic(&mut rx, value::array(vec![
         value::bulk("subscribe"),
@@ -75,7 +124,7 @@ fn test_subscribe_single_channel() {
 
 #[test]
 fn test_subscribe_multiple_channels() {
-    let (mut rx, mut tx) = prepare_data!("../example_test_cases/subscribe_multiple_channels");
+    let (mut rx, mut tx) = prepare_data!("subscribe_multiple_channels");
 
     test_generic_multiple(&mut rx, vec![value::array(vec![
         value::bulk("subscribe"),
