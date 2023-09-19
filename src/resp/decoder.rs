@@ -7,7 +7,7 @@ use RespValue::*;
 
 use super::value::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum Op {
     SimpleString,
     Error,
@@ -56,25 +56,29 @@ pub struct RespDecoder {
 
 impl RespDecoder {
     /// Returns the next operation, storing it in case of partial read.
-    fn get_op(&mut self, src: &mut BytesMut) -> io::Result<&Op> {
-        if self.op.is_none() {
-            if src.is_empty() {
-                return Err(Error::new(UnexpectedEof, ""));
+    fn get_op(&mut self, src: &mut BytesMut) -> io::Result<Op> {
+        match self.op {
+            Some(v) => {
+                Ok(v)
+            },
+            None => {
+                if src.is_empty() {
+                    return Err(Error::new(UnexpectedEof, ""));
+                }
+
+                let opcode= src.get_u8();
+                self.op = match opcode {
+                    b'+' => Some(Op::SimpleString),
+                    b'-' => Some(Op::Error),
+                    b':' => Some(Op::Integer),
+                    b'$' => Some(Op::BulkString),
+                    b'*' => Some(Op::Array),
+                    _ => return Err(Error::new(InvalidData, format!("invalid opcode byte: {:#04x}", opcode))),
+                };
+
+                Ok(self.op.unwrap())
             }
-
-            let op = match src.get_u8() {
-                b'+' => Op::SimpleString,
-                b'-' => Op::Error,
-                b':' => Op::Integer,
-                b'$' => Op::BulkString,
-                b'*' => Op::Array,
-                _ => return Err(Error::new(InvalidData, "invalid prefix")),
-            };
-
-            self.op = Some(op);
         }
-        // safety: is set 100%
-        unsafe { Ok(self.op.as_ref().unwrap_unchecked()) }
     }
 
     /// Returns the index of the next CRLF, or an error if EOF is reached.

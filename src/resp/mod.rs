@@ -5,14 +5,17 @@ use tokio_util::codec::{Decoder, Encoder};
 
 use value::RespValue;
 
-mod decoder;
-mod encoder;
+pub mod decoder;
+pub mod encoder;
 pub mod value;
 
 #[derive(Default)]
-pub(crate) struct RespCodec {
+pub struct RespCodec {
     dec: decoder::RespDecoder,
 }
+
+pub use decoder::RespDecoder;
+
 
 impl Decoder for RespCodec {
     type Item = RespValue;
