@@ -1,6 +1,6 @@
 use std::str;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 pub enum RespValue {
     SimpleString(Box<str>),
     SimpleError(Box<str>),
