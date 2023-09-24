@@ -1,4 +1,4 @@
-use redis_proto_parse::resp::{value, RespCodec};
+use redis_proto_parse::resp::{value, RespCodec, encoder};
 use tokio_util::codec::Decoder;
 use bytes::BytesMut;
 
@@ -110,4 +110,21 @@ fn test_debug_fmt() {
     ]);
 
     assert_eq!(format!("{:?}", v), "Array<5>([BulkString(\"subscribe\"), BulkString(\"test_channel_1\"), Integer(1), SimpleString(\"foo\"), SimpleError(\"bar\")]))")
+}
+
+#[test]
+fn test_simple_encode_values() {
+    // test to make sure the Some variants of encoded values produce the expected results in basic cases
+    let v=value::array(vec![
+        value::bulk("bulk"),
+        value::int(1),
+        value::simple("foo"),
+        value::err("bar"),
+    ]);
+
+    let mut data = BytesMut::new();
+
+    encoder::resp_encode(v, &mut data);
+
+    assert_eq!(data, BytesMut::from("*4\r\n$4\r\nbulk\r\n:1\r\n+foo\r\n-bar\r\n"));
 }

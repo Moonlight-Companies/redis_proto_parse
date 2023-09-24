@@ -2,7 +2,7 @@ use bytes::{BufMut, BytesMut};
 
 use crate::resp::RespValue;
 
-pub(crate) fn resp_encode(item: RespValue, dst: &mut BytesMut) {
+pub fn resp_encode(item: RespValue, dst: &mut BytesMut) {
     match item {
         RespValue::SimpleString(s) => {
             dst.reserve(s.len() + 3);
