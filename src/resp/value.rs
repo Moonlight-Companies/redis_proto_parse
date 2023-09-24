@@ -31,8 +31,8 @@ use std::fmt;
 impl fmt::Debug for RespValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RespValue::SimpleString(val) => write!(f, "SimpleString({})", val),
-            RespValue::SimpleError(val) => write!(f, "SimpleError({})", val),
+            RespValue::SimpleString(val) => write!(f, "SimpleString({:?})", val),
+            RespValue::SimpleError(val) => write!(f, "SimpleError({:?})", val),
             RespValue::Integer(val) => write!(f, "Integer({})", val),
             RespValue::BulkString(Some(buf)) => write!(f, "BulkString({:?})", String::from_utf8_lossy(buf)),
             RespValue::BulkString(None) => write!(f, "BulkString(None)"),

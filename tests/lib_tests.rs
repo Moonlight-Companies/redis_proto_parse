@@ -39,7 +39,7 @@ fn test_ping_simple() {
     let (mut rx, mut tx) = prepare_data!("ping_simple");
 
     test_generic(&mut rx, value::simple("PONG"));
-    
+
     test_generic(&mut tx, value::array(vec![
         value::bulk("ping"),
     ]));
@@ -50,7 +50,7 @@ fn test_ping_bulk() {
     let (mut rx, mut tx) = prepare_data!("ping_bulk");
 
     test_generic(&mut rx, value::bulk("hello world"));
-    
+
     test_generic(&mut tx, value::array(vec![
         value::bulk("ping"),
         value::bulk("hello world"),
@@ -90,7 +90,7 @@ fn test_subscribe_multiple_channels() {
         value::bulk("test_channel_3"),
         value::int(3),
     ])]);
-    
+
     test_generic_multiple(&mut tx, vec![value::array(vec![
         value::bulk("subscribe"),
         value::bulk("test_channel_1"),
@@ -105,7 +105,9 @@ fn test_debug_fmt() {
         value::bulk("subscribe"),
         value::bulk("test_channel_1"),
         value::int(1),
+        value::simple("foo"),
+        value::err("bar"),
     ]);
 
-    assert_eq!(format!("{:?}", v), "Array<3>([BulkString(\"subscribe\"), BulkString(\"test_channel_1\"), Integer(1)]))")
+    assert_eq!(format!("{:?}", v), "Array<5>([BulkString(\"subscribe\"), BulkString(\"test_channel_1\"), Integer(1), SimpleString(\"foo\"), SimpleError(\"bar\")]))")
 }
