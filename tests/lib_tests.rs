@@ -1,4 +1,4 @@
-use redis_proto_parse::resp::{value, RespCodec, encoder};
+use redis_proto_parse::resp::{value, RespCodec};
 use tokio_util::codec::Decoder;
 use bytes::BytesMut;
 
