@@ -48,6 +48,7 @@ impl Sender {
 impl Receiver {
     pub async fn new(addr: impl ToSocketAddrs) -> io::Result<Self> {
         let stream = tokio::net::TcpStream::connect(addr).await?;
+
         let framed = Framed::new(stream, RespCodec::default());
         let (tx, rx) = framed.split();
 
@@ -110,11 +111,12 @@ impl Receiver {
             // after ten seconds
             let pingfut = async {
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
                 if !received_pong {
                     return Err(io::Error::from(io::ErrorKind::TimedOut));
                 }
                 received_pong = false;
-                // println!("sending ping");
+
                 self.tx.send(vec![bulk("PING")].into()).await
             };
 
@@ -130,13 +132,8 @@ impl Receiver {
             }
             .ok_or(io::ErrorKind::BrokenPipe)??;
 
-            let items = match frame {
-                RespValue::Array(Some(items)) => items,
-                RespValue::SimpleString(p) if &*p == "PONG" => {
-                    received_pong = true;
-                    continue;
-                }
-                _ => return Err(io::Error::from(io::ErrorKind::InvalidData)),
+            let RespValue::Array(Some(items)) = frame else {
+                return Err(io::Error::from(io::ErrorKind::InvalidData))
             };
 
             let ty = items[0].as_str();
@@ -146,6 +143,10 @@ impl Receiver {
                 Some("pmessage") => items.get(2..4),
                 Some("unsubscribe") | Some("punsubscribe") => continue,
                 Some("subscribe") | Some("psubscribe") => continue,
+                Some("pong") => {
+                    received_pong = true;
+                    continue
+                },
                 _ => return Err(io::Error::from(io::ErrorKind::InvalidData)),
             };
 
