@@ -12,12 +12,8 @@ fn test_op_simplestring() {
         Ok(Some(v)) => {
             assert_eq!(v, value::simple("TEST"));
         }
-        Ok(None) => {
-            assert!(false, "Decode returned None, but a value was expected.");
-        }
-        Err(e) => {
-            assert!(false, "An error occurred while decoding: {:?}", e);
-        }
+        Ok(None) => panic!("Decode returned None, but a value was expected."),
+        Err(e) => panic!("An error occurred while decoding: {:?}", e),
     }
 }
 
@@ -31,12 +27,8 @@ fn test_op_error() {
         Ok(Some(v)) => {
             assert_eq!(v, value::err("TEST"));
         }
-        Ok(None) => {
-            assert!(false, "Decode returned None, but a value was expected.");
-        }
-        Err(e) => {
-            assert!(false, "An error occurred while decoding: {:?}", e);
-        }
+        Ok(None) => panic!("Decode returned None, but a value was expected."),
+        Err(e) => panic!("An error occurred while decoding: {:?}", e),
     }
 }
 
@@ -50,12 +42,8 @@ fn test_op_int() {
         Ok(Some(v)) => {
             assert_eq!(v, value::int(42));
         }
-        Ok(None) => {
-            assert!(false, "Decode returned None, but a value was expected.");
-        }
-        Err(e) => {
-            assert!(false, "An error occurred while decoding: {:?}", e);
-        }
+        Ok(None) => panic!("Decode returned None, but a value was expected."),
+        Err(e) => panic!("An error occurred while decoding: {:?}", e),
     }
 }
 
@@ -73,12 +61,8 @@ fn test_op_bulkstring() {
         Ok(Some(v)) => {
             assert_eq!(v, value::bulk("TEST"));
         }
-        Ok(None) => {
-            assert!(false, "Decode returned None, but a value was expected.");
-        }
-        Err(e) => {
-            assert!(false, "An error occurred while decoding: {:?}", e);
-        }
+        Ok(None) => panic!("Decode returned None, but a value was expected."),
+        Err(e) => panic!("An error occurred while decoding: {:?}", e),
     }
 }
 
@@ -97,11 +81,7 @@ fn test_op_array() {
         Ok(Some(v)) => {
             assert_eq!(v, value::array(vec![value::bulk("TEST")]));
         }
-        Ok(None) => {
-            assert!(false, "Decode returned None, but a value was expected.");
-        }
-        Err(e) => {
-            assert!(false, "An error occurred while decoding: {:?}", e);
-        }
+        Ok(None) => panic!("Decode returned None, but a value was expected."),
+        Err(e) => panic!("An error occurred while decoding: {:?}", e),
     }
 }

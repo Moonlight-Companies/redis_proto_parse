@@ -15,7 +15,7 @@ fn test_missing_frame_terminator() {
         }
         Ok(None) => {
             // op should be equal to SimpleString, remaining buffer should be "PONG", codec waiting for CRLF
-            assert_eq!(rx.len(), 4 as usize);
+            assert_eq!(rx.len(), 4);
         }
         Err(e) => {
             panic!("An error occurred: {:?}", e);
@@ -32,7 +32,7 @@ fn test_bad_op() {
         if skip.contains(&i) {
             continue;
         }
-        let mut data = BytesMut::from(&vec![i as u8, 0x50, 0x4f, 0x4e, 0x47][..]);
+        let mut data = BytesMut::from(&vec![i, 0x50, 0x4f, 0x4e, 0x47][..]);
         let mut codec = RespCodec::default();
         match codec.decode(&mut data) {
             Ok(Some(_)) => {
@@ -64,13 +64,9 @@ fn test_remaining_buffer_len() {
     match codec.decode(&mut rx) {
         Ok(Some(v)) => {
             assert_eq!(v, value::bulk("TEST"));
-            assert_eq!(rx.len(), 1 as usize);
+            assert_eq!(rx.len(), 1);
         }
-        Ok(None) => {
-            assert!(false, "Decode returned None, but a value was expected.");
-        }
-        Err(e) => {
-            assert!(false, "An error occurred while decoding: {:?}", e);
-        }
+        Ok(None) => panic!("Decode returned None, but a value was expected."),
+        Err(e) => panic!("An error occurred while decoding: {:?}", e),
     }
 }
