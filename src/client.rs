@@ -1,5 +1,6 @@
 use std::io;
 
+use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio_util::codec::Framed;
@@ -11,7 +12,8 @@ pub struct Sender {
 }
 
 pub struct Receiver {
-    f_conn: Framed<TcpStream, RespCodec>,
+    tx: SplitSink<Framed<TcpStream, RespCodec>, RespValue>,
+    rx: SplitStream<Framed<TcpStream, RespCodec>>,
 }
 
 impl Sender {
@@ -46,16 +48,16 @@ impl Sender {
 impl Receiver {
     pub async fn new(addr: impl ToSocketAddrs) -> io::Result<Self> {
         let stream = tokio::net::TcpStream::connect(addr).await?;
+        let framed = Framed::new(stream, RespCodec::default());
+        let (tx, rx) = framed.split();
 
-        Ok(Self {
-            f_conn: Framed::new(stream, RespCodec::default()),
-        })
+        Ok(Self { rx, tx })
     }
 
     pub async fn subscribe(&mut self, channel: &str) -> io::Result<()> {
         let resp = vec![bulk("SUBSCRIBE"), bulk(channel)].into();
 
-        self.f_conn.send(resp).await?;
+        self.tx.send(resp).await?;
 
         Ok(())
     }
@@ -63,7 +65,7 @@ impl Receiver {
     pub async fn unsubscribe(&mut self, channel: &str) -> io::Result<()> {
         let resp = vec![bulk("UNSUBSCRIBE"), bulk(channel)].into();
 
-        self.f_conn.send(resp).await?;
+        self.tx.send(resp).await?;
 
         Ok(())
     }
@@ -71,7 +73,7 @@ impl Receiver {
     pub async fn unsubscribe_all(&mut self) -> io::Result<()> {
         let resp = vec![bulk("UNSUBSCRIBE")].into();
 
-        self.f_conn.send(resp).await?;
+        self.tx.send(resp).await?;
 
         Ok(())
     }
@@ -79,7 +81,7 @@ impl Receiver {
     pub async fn psubscribe(&mut self, pattern: &str) -> io::Result<()> {
         let resp = vec![bulk("PSUBSCRIBE"), bulk(pattern)].into();
 
-        self.f_conn.send(resp).await?;
+        self.tx.send(resp).await?;
 
         Ok(())
     }
@@ -87,7 +89,7 @@ impl Receiver {
     pub async fn punsubscribe(&mut self, pattern: &str) -> io::Result<()> {
         let resp = vec![bulk("PUNSUBSCRIBE"), bulk(pattern)].into();
 
-        self.f_conn.send(resp).await?;
+        self.tx.send(resp).await?;
 
         Ok(())
     }
@@ -95,21 +97,46 @@ impl Receiver {
     pub async fn punsubscribe_all(&mut self) -> io::Result<()> {
         let resp = vec![bulk("PUNSUBSCRIBE")].into();
 
-        self.f_conn.send(resp).await?;
+        self.tx.send(resp).await?;
 
         Ok(())
     }
 
     pub async fn next(&mut self) -> io::Result<(String, String)> {
-        loop {
-            let resp = self
-                .f_conn
-                .next()
-                .await
-                .ok_or(io::ErrorKind::BrokenPipe)??;
+        let mut received_pong = true;
 
-            let RespValue::Array(Some(items)) = resp else { 
-                return Err(io::Error::from(io::ErrorKind::InvalidData)) 
+        loop {
+            // future which will ping the server
+            // after ten seconds
+            let pingfut = async {
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                if !received_pong {
+                    return Err(io::Error::from(io::ErrorKind::TimedOut));
+                }
+                received_pong = false;
+                // println!("sending ping");
+                self.tx.send(vec![bulk("PING")].into()).await
+            };
+
+            // future representing the next frame
+            let mut next = self.rx.next();
+
+            let frame = tokio::select! {
+                res = pingfut => {
+                    res?;      // fail if future failed
+                    next.await // await socket for pong
+                },
+                val = &mut next => val
+            }
+            .ok_or(io::ErrorKind::BrokenPipe)??;
+
+            let items = match frame {
+                RespValue::Array(Some(items)) => items,
+                RespValue::SimpleString(p) if &*p == "PONG" => {
+                    received_pong = true;
+                    continue;
+                }
+                _ => return Err(io::Error::from(io::ErrorKind::InvalidData)),
             };
 
             let ty = items[0].as_str();
@@ -122,7 +149,7 @@ impl Receiver {
                 _ => return Err(io::Error::from(io::ErrorKind::InvalidData)),
             };
 
-            let Some([a, b]) = items else { 
+            let Some([a, b]) = items else {
                 return Err(io::Error::from(io::ErrorKind::InvalidData))
             };
 
@@ -134,7 +161,6 @@ impl Receiver {
     }
 }
 
-/// Wrapper over the redis_async client library, specific to gpio.
 pub struct Client {
     sender: Sender,
     receiver: Receiver,
@@ -187,6 +213,6 @@ impl Client {
     }
 
     pub fn join(sender: Sender, receiver: Receiver) -> Self {
-        Self { sender, receiver } 
+        Self { sender, receiver }
     }
 }

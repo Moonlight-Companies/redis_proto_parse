@@ -169,8 +169,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "redis_pp"
-version = "0.1.0"
+name = "redis_proto_parse"
+version = "0.2.1"
 dependencies = [
  "bytes",
  "futures",
