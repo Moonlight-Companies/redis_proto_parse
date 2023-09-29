@@ -1,10 +1,10 @@
+use bytes::BytesMut;
 use redis_proto_parse::resp::{value, RespCodec};
 use tokio_util::codec::Decoder;
-use bytes::BytesMut;
 
 #[test]
 fn test_missing_frame_terminator() {
-    let mut rx = BytesMut::from(&vec![ 0x2b, 0x50, 0x4f, 0x4e, 0x47 ][..]);
+    let mut rx = BytesMut::from(&vec![0x2b, 0x50, 0x4f, 0x4e, 0x47][..]);
 
     let mut codec = RespCodec::default();
 
@@ -25,14 +25,14 @@ fn test_missing_frame_terminator() {
 
 #[test]
 fn test_bad_op() {
-    let skip= vec![b'+', b'-', b':',  b'$', b'*'];
+    let skip = vec![b'+', b'-', b':', b'$', b'*'];
 
     // test each opcode byte from 0..=255 excluding actual opcodes
     for i in 0..=255 {
         if skip.contains(&i) {
             continue;
         }
-        let mut data = BytesMut::from(&vec![ i as u8, 0x50, 0x4f, 0x4e, 0x47 ][..]);
+        let mut data = BytesMut::from(&vec![i as u8, 0x50, 0x4f, 0x4e, 0x47][..]);
         let mut codec = RespCodec::default();
         match codec.decode(&mut data) {
             Ok(Some(_)) => {
@@ -53,7 +53,11 @@ fn test_bad_op() {
 
 #[test]
 fn test_remaining_buffer_len() {
-    let mut rx = BytesMut::from(&vec![ b'$', b'4', b'\r', b'\n', b'T', b'E', b'S', b'T', b'\r', b'\n', b'$' ][..]);
+    let mut rx = BytesMut::from(
+        &vec![
+            b'$', b'4', b'\r', b'\n', b'T', b'E', b'S', b'T', b'\r', b'\n', b'$',
+        ][..],
+    );
 
     let mut codec = RespCodec::default();
 

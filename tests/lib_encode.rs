@@ -1,30 +1,37 @@
-use redis_proto_parse::resp::{value, RespCodec, encoder};
-use tokio_util::codec::Decoder;
 use bytes::BytesMut;
+use redis_proto_parse::resp::{encoder, value, RespCodec};
+use tokio_util::codec::Decoder;
 
 #[macro_export]
 macro_rules! test_encode_decode {
-    ($encodefn:expr, $encodeval:expr, $encodestr:expr) => {
-        {
-            let input=$encodefn($encodeval);
-            let mut data = BytesMut::new();
-            encoder::resp_encode(input.clone(), &mut data);
-            assert_eq!(data, BytesMut::from($encodestr));
+    ($encodefn:expr, $encodeval:expr, $encodestr:expr) => {{
+        let input = $encodefn($encodeval);
+        let mut data = BytesMut::new();
+        encoder::resp_encode(input.clone(), &mut data);
+        assert_eq!(data, BytesMut::from($encodestr));
 
-            let mut codec = RespCodec::default();
-            match codec.decode(&mut data) {
-                Ok(Some(resp_value)) => {
-                    assert_eq!(resp_value, input.clone());
-                }
-                Ok(None) => {
-                    panic!("Unexpected EOF: {:?} expecting {:?}", input.clone(), $encodestr);
-                }
-                Err(e) => {
-                    panic!("An error occurred: {:?} for {:?} expecting {:?}", e, input.clone(), $encodestr);
-                }
+        let mut codec = RespCodec::default();
+        match codec.decode(&mut data) {
+            Ok(Some(resp_value)) => {
+                assert_eq!(resp_value, input.clone());
+            }
+            Ok(None) => {
+                panic!(
+                    "Unexpected EOF: {:?} expecting {:?}",
+                    input.clone(),
+                    $encodestr
+                );
+            }
+            Err(e) => {
+                panic!(
+                    "An error occurred: {:?} for {:?} expecting {:?}",
+                    e,
+                    input.clone(),
+                    $encodestr
+                );
             }
         }
-    };
+    }};
 }
 
 #[test]

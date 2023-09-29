@@ -34,7 +34,9 @@ impl fmt::Debug for RespValue {
             RespValue::SimpleString(val) => write!(f, "SimpleString({:?})", val),
             RespValue::SimpleError(val) => write!(f, "SimpleError({:?})", val),
             RespValue::Integer(val) => write!(f, "Integer({})", val),
-            RespValue::BulkString(Some(buf)) => write!(f, "BulkString({:?})", String::from_utf8_lossy(buf)),
+            RespValue::BulkString(Some(buf)) => {
+                write!(f, "BulkString({:?})", String::from_utf8_lossy(buf))
+            }
             RespValue::BulkString(None) => write!(f, "BulkString(None)"),
             RespValue::Array(Some(arr)) => write!(f, "Array<{}>({:?}))", arr.len(), arr),
             RespValue::Array(None) => write!(f, "Array(None)"),

@@ -16,7 +16,6 @@ pub struct RespCodec {
 
 pub use decoder::RespDecoder;
 
-
 impl Decoder for RespCodec {
     type Item = RespValue;
     type Error = io::Error;

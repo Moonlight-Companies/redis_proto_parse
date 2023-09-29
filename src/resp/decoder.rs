@@ -58,22 +58,25 @@ impl RespDecoder {
     /// Returns the next operation, storing it in case of partial read.
     fn get_op(&mut self, src: &mut BytesMut) -> io::Result<Op> {
         match self.op {
-            Some(v) => {
-                Ok(v)
-            },
+            Some(v) => Ok(v),
             None => {
                 if src.is_empty() {
                     return Err(Error::new(UnexpectedEof, ""));
                 }
 
-                let opcode= src.get_u8();
+                let opcode = src.get_u8();
                 self.op = match opcode {
                     b'+' => Some(Op::SimpleString),
                     b'-' => Some(Op::Error),
                     b':' => Some(Op::Integer),
                     b'$' => Some(Op::BulkString),
                     b'*' => Some(Op::Array),
-                    _ => return Err(Error::new(InvalidData, format!("invalid opcode byte: {:#04x}", opcode))),
+                    _ => {
+                        return Err(Error::new(
+                            InvalidData,
+                            format!("invalid opcode byte: {:#04x}", opcode),
+                        ))
+                    }
                 };
 
                 Ok(self.op.unwrap())
