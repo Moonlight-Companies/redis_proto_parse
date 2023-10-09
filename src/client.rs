@@ -132,8 +132,13 @@ impl Receiver {
             }
             .ok_or(io::ErrorKind::BrokenPipe)??;
 
-            let RespValue::Array(Some(items)) = frame else {
-                return Err(io::Error::from(io::ErrorKind::InvalidData))
+            let items = match frame {
+                RespValue::Array(Some(items)) => items,
+                RespValue::SimpleString(s) if &*s == "PONG" => {
+                    received_pong = true;
+                    continue
+                },
+                _ => return Err(io::Error::from(io::ErrorKind::InvalidData)) 
             };
 
             let ty = items[0].as_str();
