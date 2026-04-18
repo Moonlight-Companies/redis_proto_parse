@@ -7,6 +7,10 @@ use RespValue::*;
 
 use super::value::*;
 
+/// Upper bound on how far we'll scan looking for a CRLF terminator before
+/// declaring the stream malformed. Bounds the length-prefix line length.
+const MAX_CRLF_SCAN: usize = 512_000_000;
+
 #[derive(Debug, Clone, Copy)]
 enum Op {
     SimpleString,
@@ -91,7 +95,7 @@ impl RespDecoder {
                 .get(self.ptr..self.ptr + 2)
                 .ok_or_else(|| Error::new(UnexpectedEof, ""))?;
 
-            if self.ptr > 512_000_000 {
+            if self.ptr > MAX_CRLF_SCAN {
                 return Err(Error::new(InvalidData, "too long"));
             }
 
@@ -155,6 +159,13 @@ impl RespDecoder {
                     return Ok(BulkString(None));
                 }
 
+                if len < 0 {
+                    return Err(Error::new(
+                        InvalidData,
+                        format!("invalid bulk string length: {}", len),
+                    ));
+                }
+
                 self.cached_len = Some(len);
                 len
             }
@@ -180,6 +191,13 @@ impl RespDecoder {
 
         if len == -1 {
             return Ok(None);
+        }
+
+        if len < 0 {
+            return Err(Error::new(
+                InvalidData,
+                format!("invalid array length: {}", len),
+            ));
         }
 
         Ok(Some(ArrayContext::new(len)))

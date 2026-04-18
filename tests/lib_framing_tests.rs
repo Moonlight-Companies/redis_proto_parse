@@ -25,7 +25,7 @@ fn test_missing_frame_terminator() {
 
 #[test]
 fn test_bad_op() {
-    let skip = vec![b'+', b'-', b':', b'$', b'*'];
+    let skip = [b'+', b'-', b':', b'$', b'*'];
 
     // test each opcode byte from 0..=255 excluding actual opcodes
     for i in 0..=255 {
@@ -49,6 +49,22 @@ fn test_bad_op() {
             }
         }
     }
+}
+
+#[test]
+fn test_negative_bulk_length_rejected() {
+    let mut rx = BytesMut::from(&b"$-2\r\n"[..]);
+    let mut codec = RespCodec::default();
+    let err = codec.decode(&mut rx).expect_err("should reject");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn test_negative_array_length_rejected() {
+    let mut rx = BytesMut::from(&b"*-7\r\n"[..]);
+    let mut codec = RespCodec::default();
+    let err = codec.decode(&mut rx).expect_err("should reject");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
 }
 
 #[test]

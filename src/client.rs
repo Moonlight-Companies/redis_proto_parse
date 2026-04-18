@@ -25,7 +25,7 @@ impl Sender {
         })
     }
 
-    pub async fn publish(&mut self, channel: &str, mesg: &str) -> io::Result<i64> {
+    pub async fn publish(&mut self, channel: &str, mesg: impl AsRef<[u8]>) -> io::Result<i64> {
         let resp = vec![bulk("PUBLISH"), bulk(channel), bulk(mesg)].into();
 
         self.f_conn.send(resp).await?;
@@ -37,9 +37,7 @@ impl Sender {
             Ok(RespValue::Integer(i)) => Ok(i),
             // error case :(
             Err(e) => Err(e),
-            Ok(RespValue::SimpleError(err)) => {
-                Err(io::Error::new(io::ErrorKind::Other, String::from(err)))
-            }
+            Ok(RespValue::SimpleError(err)) => Err(io::Error::other(String::from(err))),
             Ok(_) => Err(io::Error::from(io::ErrorKind::InvalidData)),
         }
     }
@@ -104,59 +102,57 @@ impl Receiver {
     }
 
     pub async fn next(&mut self) -> io::Result<(String, String)> {
-        let mut received_pong = true;
+        // Any frame from the server is proof of liveness. Only after a full
+        // IDLE_TIMEOUT with no traffic do we send PING. After MAX_OUTSTANDING_PINGS
+        // idle windows in a row with no response, we declare the link dead.
+        const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+        const MAX_OUTSTANDING_PINGS: u8 = 3;
+
+        let mut outstanding_pings: u8 = 0;
 
         loop {
-            // future which will ping the server
-            // after ten seconds
-            let pingfut = async {
-                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-
-                if !received_pong {
-                    return Err(io::Error::from(io::ErrorKind::TimedOut));
+            let frame = match tokio::time::timeout(IDLE_TIMEOUT, self.rx.next()).await {
+                Ok(Some(Ok(frame))) => {
+                    outstanding_pings = 0;
+                    frame
                 }
-                received_pong = false;
-
-                self.tx.send(vec![bulk("PING")].into()).await
+                Ok(Some(Err(e))) => return Err(e),
+                Ok(None) => return Err(io::ErrorKind::BrokenPipe.into()),
+                Err(_) => {
+                    if outstanding_pings >= MAX_OUTSTANDING_PINGS {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            format!(
+                                "no frame received after {} consecutive PINGs",
+                                outstanding_pings
+                            ),
+                        ));
+                    }
+                    self.tx.send(vec![bulk("PING")].into()).await?;
+                    outstanding_pings += 1;
+                    continue;
+                }
             };
-
-            // future representing the next frame
-            let mut next = self.rx.next();
-
-            let frame = tokio::select! {
-                res = pingfut => {
-                    res?;      // fail if future failed
-                    next.await // await socket for pong
-                },
-                val = &mut next => val
-            }
-            .ok_or(io::ErrorKind::BrokenPipe)??;
 
             let items = match frame {
                 RespValue::Array(Some(items)) => items,
-                RespValue::SimpleString(s) if &*s == "PONG" => {
-                    received_pong = true;
-                    continue
-                },
-                _ => return Err(io::Error::from(io::ErrorKind::InvalidData)) 
+                RespValue::SimpleString(s) if &*s == "PONG" => continue,
+                _ => return Err(io::Error::from(io::ErrorKind::InvalidData)),
             };
 
-            let ty = items[0].as_str();
+            let ty = items.first().and_then(|v| v.as_str());
 
             let items = match ty {
-                Some("message") => items.get(1..3),
+                Some("message") | Some("smessage") => items.get(1..3),
                 Some("pmessage") => items.get(2..4),
-                Some("unsubscribe") | Some("punsubscribe") => continue,
-                Some("subscribe") | Some("psubscribe") => continue,
-                Some("pong") => {
-                    received_pong = true;
-                    continue
-                },
+                Some("unsubscribe") | Some("punsubscribe") | Some("sunsubscribe") => continue,
+                Some("subscribe") | Some("psubscribe") | Some("ssubscribe") => continue,
+                Some("pong") => continue,
                 _ => return Err(io::Error::from(io::ErrorKind::InvalidData)),
             };
 
             let Some([a, b]) = items else {
-                return Err(io::Error::from(io::ErrorKind::InvalidData))
+                return Err(io::Error::from(io::ErrorKind::InvalidData));
             };
 
             let channel = a.as_str().ok_or(io::ErrorKind::InvalidData)?;
@@ -182,7 +178,7 @@ impl Client {
         })
     }
 
-    pub async fn publish(&mut self, channel: &str, mesg: &str) -> io::Result<i64> {
+    pub async fn publish(&mut self, channel: &str, mesg: impl AsRef<[u8]>) -> io::Result<i64> {
         self.sender.publish(channel, mesg).await
     }
 

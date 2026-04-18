@@ -22,8 +22,12 @@ impl RespValue {
         }
     }
 
-    pub fn as_buf(&self) -> Option<&str> {
-        None
+    pub fn as_buf(&self) -> Option<&[u8]> {
+        match self {
+            BulkString(Some(buf)) => Some(&buf[..]),
+            SimpleString(val) | SimpleError(val) => Some(val.as_bytes()),
+            _ => None,
+        }
     }
 }
 
@@ -56,8 +60,8 @@ pub fn err(s: impl AsRef<str>) -> RespValue {
     SimpleError(Box::from(s.as_ref()))
 }
 
-pub fn int(s: impl Into<i64>) -> RespValue {
-    Integer(s.into())
+pub fn int(v: impl Into<i64>) -> RespValue {
+    Integer(v.into())
 }
 
 pub fn bulk(bs: impl AsRef<[u8]>) -> RespValue {

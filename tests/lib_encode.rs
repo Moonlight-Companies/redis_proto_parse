@@ -7,7 +7,7 @@ macro_rules! test_encode_decode {
     ($encodefn:expr, $encodeval:expr, $encodestr:expr) => {{
         let input = $encodefn($encodeval);
         let mut data = BytesMut::new();
-        encoder::resp_encode(input.clone(), &mut data);
+        encoder::resp_encode(input.clone(), &mut data).expect("encode");
         assert_eq!(data, BytesMut::from($encodestr));
 
         let mut codec = RespCodec::default();
@@ -57,4 +57,20 @@ fn test_simple_encode_value_err() {
 #[test]
 fn test_simple_encode_value_array() {
     test_encode_decode!(value::array, vec![], "*0\r\n")
+}
+
+#[test]
+fn test_encode_rejects_crlf_in_simple_string() {
+    let mut data = BytesMut::new();
+    let result = encoder::resp_encode(value::simple("bad\r\ninject"), &mut data);
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn test_encode_rejects_crlf_in_simple_error() {
+    let mut data = BytesMut::new();
+    let result = encoder::resp_encode(value::err("bad\rnope"), &mut data);
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
 }

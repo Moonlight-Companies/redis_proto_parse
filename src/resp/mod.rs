@@ -36,8 +36,6 @@ impl Encoder<RespValue> for RespCodec {
     type Error = io::Error;
 
     fn encode(&mut self, item: RespValue, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        encoder::resp_encode(item, dst);
-
-        Ok(())
+        encoder::resp_encode(item, dst)
     }
 }

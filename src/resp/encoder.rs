@@ -1,16 +1,34 @@
+use std::io::{self, Error, ErrorKind};
+
 use bytes::{BufMut, BytesMut};
 
 use crate::resp::RespValue;
 
-pub fn resp_encode(item: RespValue, dst: &mut BytesMut) {
+fn contains_crlf(s: &str) -> bool {
+    s.as_bytes().iter().any(|&b| b == b'\r' || b == b'\n')
+}
+
+pub fn resp_encode(item: RespValue, dst: &mut BytesMut) -> io::Result<()> {
     match item {
         RespValue::SimpleString(s) => {
+            if contains_crlf(&s) {
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    "SimpleString contains CR or LF",
+                ));
+            }
             dst.reserve(s.len() + 3);
             dst.put_slice(b"+");
             dst.put_slice(s.as_bytes());
             dst.put_slice(b"\r\n");
         }
         RespValue::SimpleError(e) => {
+            if contains_crlf(&e) {
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    "SimpleError contains CR or LF",
+                ));
+            }
             dst.reserve(e.len() + 3);
             dst.put_slice(b"-");
             dst.put_slice(e.as_bytes());
@@ -48,7 +66,7 @@ pub fn resp_encode(item: RespValue, dst: &mut BytesMut) {
                 dst.put_slice(b"\r\n");
 
                 for item in vec {
-                    resp_encode(item, dst);
+                    resp_encode(item, dst)?;
                 }
             } else {
                 dst.reserve(5);
@@ -56,4 +74,5 @@ pub fn resp_encode(item: RespValue, dst: &mut BytesMut) {
             }
         }
     }
+    Ok(())
 }
